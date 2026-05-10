@@ -29,13 +29,100 @@ A CLI that connects directly to Figma Desktop and gives you complete control:
 - **shadcn/ui Components** — Generate all 30 official shadcn components with real Lucide icons and variable binding
 - **Design Tokens** — Create variables, collections, modes (Light/Dark), bind to nodes
 - **Create Anything** — Frames, text, shapes, icons (150k+ from Iconify), components
+- **Effects & Gradients** — Drop shadows, blur, linear/radial/angular/diamond gradients, image fills via CSS-like JSX props
+- **Component Properties** — Add boolean/text properties, build variant sets via `combineAsVariants`
+- **Dev Resources** — Link nodes to Storybook, GitHub, internal docs (design-dev handoff)
+- **Annotations** — Inline notes/specs/markdown directly on Figma nodes
 - **Slots** — Create and manage Figma's new Slots feature for flexible component content
 - **Team Libraries** — Import and use components, styles, variables from any library
 - **Analyze Designs** — Colors, typography, spacing, find repeated patterns
 - **Lint & Accessibility** — Contrast checker, touch targets, design rules
 - **Export** — PNG, SVG, JSX, Storybook stories, CSS variables, Tailwind config
 - **Batch Operations** — Rename layers, find/replace text, create 100 variables at once
+- **Offline API Reference** — Look up the full Figma Plugin API spec without leaving the terminal
+- **Local-LLM Ready** — Auto-suggests API references when called with unknown commands, perfect for AI-driven workflows
 - **Works with Claude Code** — Just ask in natural language, Claude knows all commands
+
+---
+
+## What's New
+
+Recent additions for design system teams and AI-driven workflows.
+
+### Effects, gradients, and images in JSX
+
+```bash
+# Drop shadow
+figma-cli render '<Frame bg="#FFF" w={300} h={150} rounded={12} shadow="0 4px 12px rgba(0,0,0,0.15)" />'
+
+# Linear gradient (CSS-like syntax)
+figma-cli render '<Frame bg="linear-gradient(180deg, #3B82F6, #8B5CF6)" w={300} h={150} rounded={12} />'
+
+# Image fill from URL
+figma-cli render '<Frame w={400} h={300} rounded={12} image="https://picsum.photos/400/300" />'
+
+# Inner shadow + layer blur
+figma-cli render '<Frame bg="#3B82F6" w={200} h={200} rounded={100} innerShadow="0 2px 4px #00000040" blur={2} />'
+```
+
+Supported props on `<Frame>`:
+- `shadow="<x> <y> <blur> <color>"` — drop shadow (CSS-like)
+- `innerShadow="<x> <y> <blur> <color>"` — inner shadow
+- `blur={N}` — layer blur radius
+- `bgBlur={N}` — background blur radius
+- `bg="linear-gradient(180deg, #FF0000, #00FF00)"` — gradients (linear, radial, angular, diamond)
+- `image="https://..."` — image fill from URL
+- `imageScale="fill|fit|crop|tile"` — image sizing mode
+
+### Dev resources (Storybook, GitHub, docs links)
+
+```bash
+figma-cli dev link 1:23 https://storybook.acme.com/button --name "Storybook"
+figma-cli dev list 1:23
+figma-cli dev unlink 1:23 https://storybook.acme.com/button
+figma-cli dev edit 1:23 <oldUrl> <newUrl> --name "New name"
+```
+
+### Annotations (inline notes on nodes)
+
+```bash
+figma-cli annotate add 1:23 "Use this for success states only"
+figma-cli annotate add 1:23 "**Token:** \`brand.success.500\`" --markdown
+figma-cli annotate list 1:23
+figma-cli annotate clear 1:23
+```
+
+### Component properties and variant sets
+
+```bash
+# Boolean / text properties on a single component
+figma-cli component prop add 1:23 "Disabled" boolean false
+figma-cli component prop add 1:23 "Label" text "Click me"
+figma-cli component prop list 1:23
+figma-cli component prop delete 1:23 "Label#1:0"
+
+# Variant sets (multiple components named "Property=Value", then combined)
+figma-cli render '<Frame name="Size=Small" .../>'
+figma-cli render '<Frame name="Size=Medium" .../>'
+figma-cli node to-component <id1>
+figma-cli node to-component <id2>
+figma-cli component combine "<componentId1>,<componentId2>" --name "MyButton"
+```
+
+### Offline Figma Plugin API reference
+
+```bash
+figma-cli api setup            # one-time download (~5 MB)
+figma-cli api list shadow      # search by substring
+figma-cli api FrameNode        # show full spec for an interface or type
+figma-cli api gap              # show capabilities not yet exposed by figma-cli
+```
+
+If you call figma-cli with an unknown command, it now suggests matching API references instead of just dumping the help banner. Built so AI agents can self-correct when they hallucinate command names.
+
+### Safe Mode text wrapping fix
+
+If you use Safe Mode (plugin-based, no Figma patching), text in fixed-width column layouts now wraps correctly. Previously text would overflow because the plugin sandbox skipped Figma's auto-layout calculation.
 
 ---
 
