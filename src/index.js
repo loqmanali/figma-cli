@@ -8440,6 +8440,98 @@ devCmd
     }
   });
 
+// ============ ANNOTATIONS ============
+// Inline notes / specs on Figma nodes (tokens, usage rules, etc.)
+
+const annotateCmd = program
+  .command('annotate')
+  .description('Manage annotations (inline notes) on nodes');
+
+annotateCmd
+  .command('add <nodeId> <text>')
+  .description('Add an annotation to a node (use --markdown for rich text)')
+  .option('-m, --markdown', 'Treat text as markdown')
+  .action(async (nodeId, text, options) => {
+    await checkConnection();
+    const labelKey = options.markdown ? 'labelMarkdown' : 'label';
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (!('annotations' in n)) throw new Error('Node does not support annotations');
+      // Normalize existing entries — Figma rejects entries with BOTH label and labelMarkdown set
+      const existing = (n.annotations || []).map(a => {
+        const cleaned = {};
+        if (a.labelMarkdown) cleaned.labelMarkdown = a.labelMarkdown;
+        else if (a.label) cleaned.label = a.label;
+        if (a.categoryId) cleaned.categoryId = a.categoryId;
+        if (a.properties) cleaned.properties = a.properties;
+        return cleaned;
+      });
+      n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)} }];
+      return { id: n.id, name: n.name, count: n.annotations.length };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id})`);
+      console.log(chalk.gray(`  Total annotations: ${r.count}`));
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+annotateCmd
+  .command('list [nodeId]')
+  .description('List annotations on a node (or current selection)')
+  .action(async (nodeId) => {
+    await checkConnection();
+    const target = nodeId
+      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
+      : `figma.currentPage.selection[0]`;
+    const code = `(async () => {
+      const n = ${target};
+      if (!n) throw new Error('No node found');
+      if (!('annotations' in n)) throw new Error('Node does not support annotations');
+      return { id: n.id, name: n.name, annotations: n.annotations || [] };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.bold(`${r.name} (${r.id})`));
+      if (!r.annotations || r.annotations.length === 0) {
+        console.log(chalk.gray('  (no annotations)'));
+        return;
+      }
+      r.annotations.forEach((a, i) => {
+        const label = a.label || a.labelMarkdown || '(empty)';
+        console.log(`  ${i + 1}. ${label}`);
+      });
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+annotateCmd
+  .command('clear <nodeId>')
+  .description('Remove all annotations from a node')
+  .action(async (nodeId) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (!('annotations' in n)) throw new Error('Node does not support annotations');
+      n.annotations = [];
+      return { id: n.id, name: n.name };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Cleared annotations on ${r.name} (${r.id})`);
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
 // ============ PLUGINS ============
 
 import { listPlugins, installPlugin, uninstallPlugin, setupPlugin, loadPlugins } from './plugins.js';
