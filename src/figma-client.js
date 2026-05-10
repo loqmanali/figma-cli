@@ -400,6 +400,7 @@ export class FigmaClient {
 
       const fillCode = this.generateFillCode(bg, `f${frameIdx}`);
       const strokeCode = stroke ? this.generateStrokeCode(stroke, `f${frameIdx}`) : { code: '' };
+      const effectsCode = this.generateEffectsCode(props, `f${frameIdx}`);
 
       // Generate child code
       let childCounter = 0;
@@ -461,6 +462,7 @@ export class FigmaClient {
             const fItemsVal = alignMap[fItems] || 'CENTER';
             const fFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
             const fStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`) : { code: '' };
+            const fEffectsCode = this.generateEffectsCode(item, `el${idx}`);
             const nestedChildren = item._children ? generateChildCode(item._children, `el${idx}`, fFlex) : '';
             return `
           const el${idx} = figma.createFrame();
@@ -472,6 +474,7 @@ export class FigmaClient {
           el${idx}.cornerRadius = ${fRounded};
           ${fFillCode.code}
           ${fStrokeCode.code}
+          ${fEffectsCode}
           el${idx}.itemSpacing = ${fGap};
           el${idx}.paddingTop = ${fPt};
           el${idx}.paddingBottom = ${fPb};
@@ -501,6 +504,7 @@ export class FigmaClient {
         f${frameIdx}.cornerRadius = ${rounded};
         ${fillCode.code}
         ${strokeCode.code}
+        ${effectsCode}
         f${frameIdx}.layoutMode = '${flex === 'row' ? 'HORIZONTAL' : 'VERTICAL'}';
         ${wrap && flex === 'row' ? `f${frameIdx}.layoutWrap = 'WRAP';` : ''}
         f${frameIdx}.itemSpacing = ${itemGap};
@@ -991,6 +995,7 @@ export class FigmaClient {
           const nestedChildren = item._children ? generateChildCode(item._children, `el${idx}`, fFlex) : '';
           const frameFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
           const frameStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`, fStrokeWidth, fStrokeAlign) : { code: '' };
+          const frameEffectsCode = this.generateEffectsCode(item, `el${idx}`);
 
           // Determine sizing: FILL, FIXED, or HUG for each axis
           const wantFillH = fillWidth || (fGrow !== null && parentFlex === 'row');
@@ -1013,6 +1018,7 @@ export class FigmaClient {
         el${idx}.cornerRadius = ${fRounded};
         ${frameFillCode.code}
         ${frameStrokeCode.code}
+        ${frameEffectsCode}
         el${idx}.primaryAxisAlignItems = '${fJustifyVal}';
         el${idx}.counterAxisAlignItems = '${fAlignVal}';
         el${idx}.clipsContent = ${fClip};
@@ -1200,6 +1206,7 @@ export class FigmaClient {
     // Generate fill/stroke code for root frame
     const rootFillCode = this.generateFillCode(bg, 'frame');
     const rootStrokeCode = stroke ? this.generateStrokeCode(stroke, 'frame', strokeWidth, strokeAlignProp) : { code: '', usesVars: false };
+    const rootEffectsCode = this.generateEffectsCode(props, 'frame');
 
     // Variable loading code with caching (only if any vars used)
     const varLoadCode = usesVars ? `
@@ -1257,6 +1264,7 @@ export class FigmaClient {
         frame.cornerRadius = ${rounded};
         ${rootFillCode.code}
         ${rootStrokeCode.code}
+        ${rootEffectsCode}
         frame.layoutMode = '${flex === 'row' ? 'HORIZONTAL' : 'VERTICAL'}';
         ${wrap && flex === 'row' ? `frame.layoutWrap = 'WRAP';` : ''}
         frame.itemSpacing = ${gap};
@@ -1347,6 +1355,88 @@ export class FigmaClient {
         usesVars: false
       };
     }
+  }
+
+  /**
+   * Parse a CSS-like shadow string into a Figma effect descriptor.
+   * Accepts: "0 4px 12px rgba(0,0,0,0.1)" / "0 2px 4px #00000040" / "0 4 12 #00000019"
+   * Returns: { x, y, blur, color: {r,g,b,a} } or null
+   */
+  parseShadowString(s) {
+    if (typeof s !== 'string') return null;
+    let str = s.trim();
+    // Extract color (last hex or rgba(...))
+    let color = null;
+    const rgbaMatch = str.match(/rgba?\(([^)]+)\)\s*$/);
+    if (rgbaMatch) {
+      const parts = rgbaMatch[1].split(',').map(p => p.trim());
+      color = {
+        r: parseInt(parts[0]) / 255,
+        g: parseInt(parts[1]) / 255,
+        b: parseInt(parts[2]) / 255,
+        a: parts.length > 3 ? parseFloat(parts[3]) : 1,
+      };
+      str = str.slice(0, rgbaMatch.index).trim();
+    } else {
+      const hexMatch = str.match(/#[0-9a-fA-F]{3,8}\s*$/);
+      if (hexMatch) {
+        const hex = hexMatch[0].trim();
+        const c = this.hexToRgb(hex);
+        if (c) {
+          let a = 1;
+          if (hex.length === 9) a = parseInt(hex.slice(7, 9), 16) / 255;
+          color = { ...c, a };
+        }
+        str = str.slice(0, hexMatch.index).trim();
+      }
+    }
+    if (!color) color = { r: 0, g: 0, b: 0, a: 0.1 };
+    const nums = str.split(/\s+/).filter(Boolean).map(n => parseFloat(n));
+    if (nums.length < 2) return null;
+    return { x: nums[0] || 0, y: nums[1] || 0, blur: nums[2] || 0, color };
+  }
+
+  /**
+   * Generate code that sets `effects` on an element from JSX props.
+   * Supported props:
+   *   shadow="0 4px 12px rgba(0,0,0,0.1)"   — DROP_SHADOW
+   *   innerShadow="0 2px 4px #00000040"     — INNER_SHADOW
+   *   blur={4}                               — LAYER_BLUR
+   *   bgBlur={8}                             — BACKGROUND_BLUR
+   * Multiple effects accumulate.
+   */
+  generateEffectsCode(props, elementVar) {
+    const effects = [];
+    if (props.shadow) {
+      const arr = Array.isArray(props.shadow) ? props.shadow : [props.shadow];
+      for (const s of arr) {
+        const e = this.parseShadowString(s);
+        if (e) effects.push({ type: 'DROP_SHADOW', x: e.x, y: e.y, blur: e.blur, color: e.color });
+      }
+    }
+    if (props.innerShadow) {
+      const arr = Array.isArray(props.innerShadow) ? props.innerShadow : [props.innerShadow];
+      for (const s of arr) {
+        const e = this.parseShadowString(s);
+        if (e) effects.push({ type: 'INNER_SHADOW', x: e.x, y: e.y, blur: e.blur, color: e.color });
+      }
+    }
+    if (props.blur !== undefined && props.blur !== null) {
+      const r = Number(props.blur);
+      if (Number.isFinite(r) && r > 0) effects.push({ type: 'LAYER_BLUR', radius: r });
+    }
+    if (props.bgBlur !== undefined && props.bgBlur !== null) {
+      const r = Number(props.bgBlur);
+      if (Number.isFinite(r) && r > 0) effects.push({ type: 'BACKGROUND_BLUR', radius: r });
+    }
+    if (effects.length === 0) return '';
+    const figmaEffects = effects.map(e => {
+      if (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') {
+        return `{type:'${e.type}',color:{r:${e.color.r},g:${e.color.g},b:${e.color.b},a:${e.color.a}},offset:{x:${e.x},y:${e.y}},radius:${e.blur},spread:0,visible:true,blendMode:'NORMAL'}`;
+      }
+      return `{type:'${e.type}',radius:${e.radius},visible:true}`;
+    });
+    return `${elementVar}.effects = [${figmaEffects.join(',')}];`;
   }
 
   /**
