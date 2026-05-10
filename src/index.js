@@ -8330,6 +8330,116 @@ blocksCmd
     }
   });
 
+// ============ DEV RESOURCES ============
+// Link Figma nodes to dev artifacts (Storybook, GitHub, docs, etc.)
+
+const devCmd = program
+  .command('dev')
+  .description('Manage dev resources (Storybook/GitHub/doc links on nodes)');
+
+devCmd
+  .command('link <nodeId> <url>')
+  .description('Add a dev resource link to a node')
+  .option('-n, --name <name>', 'Display name for the link')
+  .action(async (nodeId, url, options) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (typeof n.addDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
+      await n.addDevResourceAsync(${JSON.stringify(url)}, ${JSON.stringify(options.name || '')});
+      const all = await n.getDevResourcesAsync();
+      return { id: n.id, name: n.name, count: all.length };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Linked: ${r.name} (${r.id}) → ${url}`);
+      console.log(chalk.gray(`  Total dev resources: ${r.count}`));
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+devCmd
+  .command('list [nodeId]')
+  .description('List dev resources on a node (or current selection)')
+  .action(async (nodeId) => {
+    await checkConnection();
+    const target = nodeId
+      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
+      : `figma.currentPage.selection[0]`;
+    const code = `(async () => {
+      const n = ${target};
+      if (!n) throw new Error('No node found');
+      if (typeof n.getDevResourcesAsync !== 'function') throw new Error('Node does not support dev resources');
+      const r = await n.getDevResourcesAsync();
+      return { id: n.id, name: n.name, resources: r };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.bold(`${r.name} (${r.id})`));
+      if (!r.resources || r.resources.length === 0) {
+        console.log(chalk.gray('  (no dev resources)'));
+        return;
+      }
+      r.resources.forEach((res, i) => {
+        console.log(`  ${i + 1}. ${res.name || '(unnamed)'}`);
+        console.log(chalk.gray(`     ${res.url}`));
+      });
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+devCmd
+  .command('unlink <nodeId> <url>')
+  .description('Remove a dev resource link from a node')
+  .action(async (nodeId, url) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (typeof n.deleteDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
+      await n.deleteDevResourceAsync(${JSON.stringify(url)});
+      const all = await n.getDevResourcesAsync();
+      return { id: n.id, name: n.name, count: all.length };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Unlinked from ${r.name} (${r.id})`);
+      console.log(chalk.gray(`  Remaining dev resources: ${r.count}`));
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+devCmd
+  .command('edit <nodeId> <currentUrl> <newUrl>')
+  .description('Edit an existing dev resource (replace URL and/or name)')
+  .option('-n, --name <name>', 'New display name')
+  .action(async (nodeId, currentUrl, newUrl, options) => {
+    await checkConnection();
+    const updateObj = { url: newUrl };
+    if (options.name) updateObj.name = options.name;
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (typeof n.editDevResourceAsync !== 'function') throw new Error('Node does not support dev resources');
+      await n.editDevResourceAsync(${JSON.stringify(currentUrl)}, ${JSON.stringify(updateObj)});
+      return { id: n.id, name: n.name };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Edited dev resource on ${r.name} (${r.id})`);
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
 // ============ PLUGINS ============
 
 import { listPlugins, installPlugin, uninstallPlugin, setupPlugin, loadPlugins } from './plugins.js';
