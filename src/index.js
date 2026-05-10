@@ -4631,6 +4631,46 @@ else { nodes.forEach(n => { n.name = '${name}'; }); 'Renamed ' + nodes.length + 
   });
 
 set
+  .command('text <text>')
+  .description('Change the text content of a text node (or all text children of a node)')
+  .option('-n, --node <id>', 'Node ID (text node directly, or container whose text descendants to update)')
+  .option('-q, --query <pattern>', 'Update text on all text nodes whose name OR text contains <pattern>')
+  .action(async (text, options) => {
+    await checkConnection();
+    if (!options.node && !options.query) {
+      console.error(chalk.red('✗'), 'Provide either --node <id> or --query <pattern>');
+      process.exit(1);
+    }
+    const selectorCode = options.query
+      ? `const pattern = ${JSON.stringify(options.query.toLowerCase())};
+         const targets = figma.currentPage.findAll(n => n.type === 'TEXT' &&
+           ((n.name && n.name.toLowerCase().includes(pattern)) ||
+            (n.characters && n.characters.toLowerCase().includes(pattern))));`
+      : `const root = await figma.getNodeByIdAsync(${JSON.stringify(options.node)});
+         if (!root) throw new Error('Node not found: ${options.node}');
+         const targets = root.type === 'TEXT' ? [root] :
+           (typeof root.findAll === 'function' ? root.findAll(n => n.type === 'TEXT') : []);`;
+    const code = `(async () => {
+      ${selectorCode}
+      if (targets.length === 0) throw new Error('No text nodes matched');
+      const results = [];
+      for (const t of targets) {
+        await figma.loadFontAsync(t.fontName);
+        t.characters = ${JSON.stringify(text)};
+        results.push({ id: t.id, name: t.name });
+      }
+      return results;
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Updated text on ${r.length} node(s):`);
+      r.forEach(n => console.log(chalk.gray(`  ${n.name || '(unnamed)'} (${n.id})`)));
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+set
   .command('autolayout <direction>')
   .alias('al')
   .description('Apply auto-layout to selection (row/col)')
