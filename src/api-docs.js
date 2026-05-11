@@ -18,19 +18,54 @@ function isInstalled() {
   return fs.existsSync(path.join(DOCS_DIR, 'interfaces'));
 }
 
-export async function setup() {
-  if (isInstalled()) {
+export async function setup({ update = false } = {}) {
+  const installed = isInstalled();
+  if (installed && !update) {
     console.log('✓ API docs already installed at docs/figma-api/');
+    console.log('  Run with --update to pull the latest version.');
     return;
+  }
+  if (installed && update) {
+    // git pull so the docs stay fresh without re-cloning ~5 MB
+    try {
+      console.log('→ pulling latest API docs (git pull) …');
+      execSync(`git -C "${DOCS_DIR}" pull --ff-only --quiet`, { stdio: 'inherit' });
+      console.log('✓ docs updated');
+      // Rebuild the compact index since contents may have changed
+      try { buildIndex({ silent: true }); } catch {}
+      return;
+    } catch (e) {
+      console.error('✗ git pull failed:', e.message);
+      console.error('  If the repo is dirty, delete docs/figma-api/ and re-run `figma-cli api setup`.');
+      process.exit(1);
+    }
   }
   console.log('→ cloning Figma API docs (~5 MB) into docs/figma-api/');
   fs.mkdirSync(path.dirname(DOCS_DIR), { recursive: true });
   try {
     execSync(`git clone --depth 1 ${REPO} "${DOCS_DIR}"`, { stdio: 'inherit' });
-    console.log('✓ done. Try: figma-cli api Frame');
+    // Build the compact index on first install
+    try { buildIndex({ silent: true }); } catch {}
+    console.log('✓ done. Try: figma-cli api Frame  or  figma-cli api index');
   } catch (e) {
     console.error('✗ clone failed:', e.message);
     process.exit(1);
+  }
+}
+
+/**
+ * How old (in days) the local doc clone is. Returns Infinity if not installed.
+ * Used by figmachat to decide whether to trigger an auto-refresh.
+ */
+export function ageInDays() {
+  if (!isInstalled()) return Infinity;
+  try {
+    // Use the .git/HEAD mtime as the freshness signal — updated on every pull
+    const head = path.join(DOCS_DIR, '.git', 'HEAD');
+    const stat = fs.statSync(head);
+    return (Date.now() - stat.mtimeMs) / (1000 * 60 * 60 * 24);
+  } catch {
+    return Infinity;
   }
 }
 
@@ -355,4 +390,132 @@ export function gap() {
   }
 
   console.log('Tip: figma-cli api <Name>   to read the full spec for any of these.');
+}
+
+/** Path to the compact index. Rebuilt by buildIndex(); lives alongside the docs. */
+const INDEX_PATH = path.resolve(__dirname, '..', 'docs', 'figma-api-INDEX.md');
+
+/**
+ * Build a compact markdown index of every interface + type alias with a
+ * one-line description extracted from the source markdown. ~5 KB instead of
+ * 135 KB. Designed as a "first-fetch" knowledge handle for LLM agents:
+ * the model sees what APIs exist without having to load every full file.
+ *
+ * Inspired by Claude's claude-code-guide pattern (Cristian Morales): keep
+ * skills thin, knowledge external + indexed.
+ */
+export function buildIndex({ silent = false } = {}) {
+  if (!isInstalled()) {
+    if (!silent) console.error('✗ docs not installed. Run: figma-cli api setup');
+    process.exit(1);
+  }
+  const all = listAll();
+  const groups = { interface: [], type: [] };
+  for (const item of all) {
+    let blurb = '';
+    try {
+      const content = fs.readFileSync(item.file, 'utf-8');
+      // First paragraph after the H1, skipping empty + frontmatter-style lines
+      const lines = content.split('\n');
+      let inBody = false;
+      for (const line of lines) {
+        const trim = line.trim();
+        if (!inBody) {
+          if (trim.startsWith('# ')) { inBody = true; continue; }
+          continue;
+        }
+        if (!trim) continue;
+        if (trim.startsWith('Defined in:')) continue;
+        if (trim.startsWith('##') || trim.startsWith('###')) break;
+        if (trim.startsWith('>')) continue;
+        if (trim.startsWith('|')) continue;
+        // first non-meta paragraph
+        blurb = trim.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`/g, '');
+        if (blurb.length > 140) blurb = blurb.slice(0, 137) + '…';
+        break;
+      }
+    } catch { /* skip unreadable */ }
+    groups[item.kind].push({ name: item.name, blurb });
+  }
+  for (const k of Object.keys(groups)) {
+    groups[k].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const lines = [
+    '# Figma Plugin API — Index',
+    '',
+    `Generated ${new Date().toISOString().slice(0, 10)} from docs/figma-api/.`,
+    `Total: ${groups.interface.length} interfaces, ${groups.type.length} type aliases.`,
+    '',
+    '## Interfaces',
+    '',
+  ];
+  for (const i of groups.interface) {
+    lines.push(`- **${i.name}**${i.blurb ? ' — ' + i.blurb : ''}`);
+  }
+  lines.push('', '## Type aliases', '');
+  for (const i of groups.type) {
+    lines.push(`- **${i.name}**${i.blurb ? ' — ' + i.blurb : ''}`);
+  }
+  const out = lines.join('\n') + '\n';
+  fs.writeFileSync(INDEX_PATH, out);
+  if (!silent) {
+    const sizeKB = (out.length / 1024).toFixed(1);
+    console.log(`✓ index written: ${INDEX_PATH} (${groups.interface.length}i + ${groups.type.length}t, ${sizeKB} KB)`);
+  }
+  return INDEX_PATH;
+}
+
+/**
+ * Read (or build-and-read) the compact index. Used by figmachat at startup
+ * and on /learn.
+ */
+export function readIndex() {
+  if (!fs.existsSync(INDEX_PATH)) buildIndex({ silent: true });
+  return fs.readFileSync(INDEX_PATH, 'utf-8');
+}
+
+/**
+ * Produce an LLM-ready context block. With no topic: the compact index.
+ * With a topic: the index + a small set of relevant full interface bodies
+ * (top 4 matches from searchMethods + name-search).
+ *
+ * Goal: a single string a caller can append to the system prompt or the
+ * next user message, sized appropriate for a 32k-context local model.
+ */
+export function getContext(topic) {
+  if (!isInstalled()) {
+    return '(Figma API docs not installed — run `figma-cli api setup` first.)';
+  }
+  const idx = readIndex();
+  if (!topic || !topic.trim()) return idx;
+
+  // Find candidate interfaces by name (cheap) + by method search (deeper)
+  const all = listAll() || [];
+  const q = topic.toLowerCase();
+  const nameHits = all
+    .filter(i => i.name.toLowerCase().includes(q))
+    .slice(0, 4);
+  // Also pull anything that has the topic as a defined method
+  let methodHits = [];
+  try {
+    methodHits = (searchMethods(topic) || []).slice(0, 4);
+  } catch {}
+  const interfaceNames = new Set([
+    ...nameHits.map(h => h.name),
+    ...methodHits.map(h => h.interface),
+  ]);
+  const bodies = [];
+  for (const name of interfaceNames) {
+    const item = all.find(i => i.name === name);
+    if (!item) continue;
+    try {
+      bodies.push(`\n\n---\n\n## ${name}\n\n` + fs.readFileSync(item.file, 'utf-8').trim());
+    } catch {}
+  }
+  const out = [
+    idx,
+    `\n\n# Relevant for "${topic}"\n`,
+    bodies.length > 0 ? bodies.join('\n') : '(no specific interface matches — use the index above)',
+  ].join('');
+  return out;
 }

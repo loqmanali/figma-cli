@@ -9821,8 +9821,33 @@ const apiCmd = program
 
 apiCmd
   .command('setup')
-  .description('Download Figma Plugin API docs locally (~5 MB, one-time)')
-  .action(() => apiDocs.setup());
+  .description('Download Figma Plugin API docs locally (~5 MB, one-time). Use --update to pull the latest version instead of re-cloning.')
+  .option('--update', 'git pull the docs repo instead of re-cloning (faster, keeps the dir)')
+  .action((options) => apiDocs.setup({ update: !!options.update }));
+
+apiCmd
+  .command('index')
+  .description('Build/refresh the compact "what APIs exist" index (~5 KB). LLM-friendly first-fetch handle.')
+  .action(() => apiDocs.buildIndex());
+
+apiCmd
+  .command('context [topic]')
+  .description('Print an LLM-ready context block. Without topic: the compact index. With topic: index + relevant interface bodies.')
+  .action((topic) => {
+    process.stdout.write(apiDocs.getContext(topic || ''));
+  });
+
+apiCmd
+  .command('age')
+  .description('Days since the docs repo was last updated. Used by figmachat to decide auto-refresh.')
+  .action(() => {
+    const days = apiDocs.ageInDays();
+    if (days === Infinity) {
+      console.log('not installed');
+      process.exit(1);
+    }
+    console.log(days.toFixed(1));
+  });
 
 apiCmd
   .command('list [filter]')
