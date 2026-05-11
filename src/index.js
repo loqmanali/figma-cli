@@ -4724,9 +4724,17 @@ set
     }
     const selectorCode = options.query
       ? `const pattern = ${JSON.stringify(options.query.toLowerCase())};
-         const targets = figma.currentPage.findAll(n => n.type === 'TEXT' &&
-           ((n.name && n.name.toLowerCase().includes(pattern)) ||
-            (n.characters && n.characters.toLowerCase().includes(pattern))));`
+         const matchesByName = (n) => n && n.name && n.name.toLowerCase().includes(pattern);
+         const matchesAncestor = (n) => {
+           let p = n.parent;
+           while (p && p.type !== 'PAGE') { if (matchesByName(p)) return true; p = p.parent; }
+           return false;
+         };
+         const all = figma.currentPage.findAll(n => n.type === 'TEXT');
+         let targets = all.filter(t =>
+           matchesByName(t) ||
+           (t.characters && t.characters.toLowerCase().includes(pattern)) ||
+           matchesAncestor(t));`
       : `const root = await figma.getNodeByIdAsync(${JSON.stringify(options.node)});
          if (!root) throw new Error('Node not found: ${options.node}');
          const targets = root.type === 'TEXT' ? [root] :
