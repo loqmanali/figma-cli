@@ -8416,10 +8416,12 @@ shadcn
 
 shadcn
   .command('add [names...]')
-  .description('Add shadcn/ui component(s) to Figma canvas')
+  .description('Add shadcn/ui component(s) to Figma canvas. Use --count to add multiple copies of the same component.')
   .option('--all', 'Add all components')
+  .option('-c, --count <n>', 'Add this many copies of each named component (e.g. --count 3 for 3 cards)', '1')
   .action(async (names, options) => {
     checkConnection();
+    const count = Math.max(1, parseInt(options.count) || 1);
 
     let items;
     if (options.all) {
@@ -8433,16 +8435,18 @@ shadcn
           console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
           return;
         }
-        items.push(...comp);
+        // Expand each component by --count copies
+        for (let i = 0; i < count; i++) items.push(...comp);
       }
     } else {
       console.log(chalk.yellow('  Specify component names or use --all'));
-      console.log(chalk.gray(`  Example: node src/index.js shadcn add button badge card`));
+      console.log(chalk.gray(`  Example: node src/index.js shadcn add card --count 3`));
       console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
       return;
     }
 
-    const spinner = ora(`Creating ${items.length} shadcn/ui component(s)...`).start();
+    const label = count > 1 ? ` (${count}x)` : '';
+    const spinner = ora(`Creating ${items.length} shadcn/ui component(s)${label}...`).start();
     let created = 0;
     let failed = 0;
 
