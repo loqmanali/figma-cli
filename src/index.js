@@ -825,7 +825,11 @@ program
     // The block usually sits at the END of the file, so read the whole thing
     // (these files are typically a few hundred KB max — cheap).
     const content = fs.readFileSync(file, 'utf-8');
-    const isDesignMd = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
+    // Format A: YAML frontmatter with `colors:` / `typography:` (Stitch / getdesign.md style)
+    const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
+    // Format B: our DESIGN.md extraction with `## Machine-readable tokens` JSON block
+    const hasJsonBlock = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
+    const isDesignMd = hasFrontmatterTokens || hasJsonBlock;
     if (isDesignMd) {
       // Forward to the existing implementation via Commander's own machinery.
       const args = ['tokens', 'import-design-md', file];

@@ -18,15 +18,20 @@
 
 ## ⭐ Import a whole design system in one command
 
-If you have a `DESIGN.md` extraction (the standard format with a `## Machine-readable tokens` section + a `` ```json design-tokens `` block), figma-cli ingests the entire thing — colors, radii, typography — and creates Figma variables you can immediately use in renders.
+Drop a `DESIGN.md` onto the CLI and figma-cli ingests the entire thing — colors, radii, typography — and creates Figma variables you can immediately use in renders.
 
 ```bash
 figma-cli import ~/Downloads/DESIGN.md
 ```
 
-Works with any design system that follows the convention: Carbon, Material, Polaris, or your own in-house export. Format-agnostic. No personal access tokens. No cloud. Drops straight into Figma Desktop via the local daemon.
+**Two formats supported, auto-detected:**
 
-After that, every render can use `var:accent`, `var:text-primary`, `var:radius-md` etc. — the names from your DESIGN.md. Mix this with the local LLM agent (see `figmachat` / `/load`) and the model uses your token vocabulary automatically.
+1. **YAML frontmatter** — top-level `colors:`, `typography:`, `rounded:` / `radius:`, `spacing:` (the Stitch / getdesign.md style — drop in any of the ready-made `DESIGN.md` files from public collections)
+2. **JSON token block** — the `## Machine-readable tokens` + `` ```json design-tokens `` extraction format (Carbon, Material, Polaris, in-house exporters)
+
+No personal access token. No cloud. Drops straight into Figma Desktop via the local daemon.
+
+After import, every render uses `var:primary`, `var:canvas`, `var:radius-md` etc. — the names from your DESIGN.md. Mix this with the local LLM agent (see `figmachat` / `/load`) and the model uses your token vocabulary automatically.
 
 [See full DESIGN.md docs →](#import-a-design-system-from-a-designmd)
 

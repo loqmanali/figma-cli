@@ -20,16 +20,105 @@
  */
 
 import fs from 'fs';
+import YAML from 'yaml';
 
 const JSON_BLOCK_RE = /```json\s+design-tokens\s*\n([\s\S]*?)\n```/;
 
+const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
+
+/** Normalize a value like "16px" / "1.5px" / "9999px" into a plain number, or
+ * pass through unchanged if it's not a px-suffixed number. */
+function stripPx(v) {
+  if (typeof v !== 'string') return v;
+  const m = v.match(/^([\d.]+)\s*px$/);
+  return m ? parseFloat(m[1]) : v;
+}
+
+/**
+ * Convert a getdesign.md / awesome-design-md style YAML frontmatter design
+ * spec (top-level `colors:`, `typography:`, `rounded:` / `radius:`,
+ * `spacing:`, optional `components:`) into the same shape our internal
+ * pipeline expects: `{ color, typography, radius, spacing, shadow, fonts, meta }`.
+ */
+function normalizeYamlSpec(spec) {
+  const out = { color: {}, typography: {}, radius: {}, spacing: {}, shadow: {}, meta: {} };
+  // colors (both `colors:` and `color:` are accepted)
+  const colors = spec.colors || spec.color || {};
+  for (const [k, v] of Object.entries(colors)) out.color[k] = v;
+  // typography — figma-cli's importer expects { fontFamily, fontSize, fontWeight, lineHeight, letterSpacing }
+  const ty = spec.typography || {};
+  for (const [name, t] of Object.entries(ty)) {
+    if (typeof t !== 'object') continue;
+    out.typography[name] = {
+      fontFamily: t.fontFamily,
+      fontSize: stripPx(t.fontSize),
+      fontWeight: t.fontWeight,
+      lineHeight: t.lineHeight,
+      letterSpacing: t.letterSpacing,
+    };
+  }
+  // radii — accept `rounded:` (Stitch style), `radius:` (our style), `radii:`
+  const radii = spec.rounded || spec.radius || spec.radii || {};
+  for (const [k, v] of Object.entries(radii)) {
+    const n = typeof v === 'number' ? v : stripPx(v);
+    if (typeof n === 'number') out.radius[k] = n;
+  }
+  // spacing
+  const sp = spec.spacing || {};
+  for (const [k, v] of Object.entries(sp)) {
+    const n = typeof v === 'number' ? v : stripPx(v);
+    if (typeof n === 'number') out.spacing[k] = n;
+  }
+  // shadows — keep as-is, we don't auto-create variables from these yet
+  if (spec.shadows) out.shadow = spec.shadows;
+  if (spec.shadow) out.shadow = spec.shadow;
+  // meta
+  out.meta = {
+    source: spec.name || spec.title,
+    generated: spec.version || spec.date,
+  };
+  // components (just names — useful for the figmachat context)
+  if (spec.components && typeof spec.components === 'object') {
+    out._componentNames = Object.keys(spec.components);
+  }
+  return out;
+}
+
 export function parseDesignMd(filepath) {
   const text = fs.readFileSync(filepath, 'utf-8');
+
+  // Format A: YAML frontmatter (Stitch / getdesign.md / awesome-design-md style)
+  const fmMatch = text.match(FRONTMATTER_RE);
+  if (fmMatch) {
+    let spec;
+    try {
+      spec = YAML.parse(fmMatch[1]);
+    } catch (e) {
+      throw new Error(`YAML frontmatter in ${filepath} is not valid: ${e.message}`);
+    }
+    if (spec && (spec.colors || spec.color || spec.typography)) {
+      const tokens = normalizeYamlSpec(spec);
+      return {
+        tokens,
+        meta: {
+          source: tokens.meta.source || filepath.split('/').pop().replace(/\.md$/, ''),
+          generated: tokens.meta.generated,
+          identity: spec.description,
+          components: tokens._componentNames || [],
+        },
+      };
+    }
+    // Otherwise fall through to Format B detection
+  }
+
+  // Format B: `## Machine-readable tokens` + ```json design-tokens block
+  // (our original DESIGN.md extraction format)
   const match = text.match(JSON_BLOCK_RE);
   if (!match) {
     throw new Error(
-      `No \`\`\`json design-tokens block found in ${filepath}.\n` +
-      `Expected the "## 11. Machine-readable tokens" section.`
+      `Couldn't parse ${filepath}. Expected one of:\n` +
+      `  - YAML frontmatter with top-level \`colors:\` / \`typography:\` (Stitch / getdesign.md style)\n` +
+      `  - "## Machine-readable tokens" section with a \`\`\`json design-tokens\`\`\` block`
     );
   }
   let tokens;
@@ -44,7 +133,6 @@ export function parseDesignMd(filepath) {
   const sourceMatch = text.match(/^source:\s+(.+)$/m);
   const componentSections = [...text.matchAll(/^### Page:\s+(.+)$/gm)]
     .map(m => m[1].trim())
-    // Drop the meta-pages that aren't real component areas
     .filter(p => !/^(About|Read me|Color|Effects|Spacing block|Screens|Utilities)$/i.test(p));
 
   return {
