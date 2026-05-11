@@ -1833,40 +1833,59 @@ return 'Updated ' + updated + ' nodes';
 
 program
   .command('rename-batch <json>')
-  .description('Rename multiple nodes at once')
+  .description('Rename multiple nodes at once. Accepts [{id|nodeId,name}, …] or {"<id>": "<name>", …}.')
   .action((json) => {
     checkConnection();
     let renames;
     try {
       renames = JSON.parse(json);
     } catch {
-      console.log(chalk.red('Invalid JSON. Expected: [{"nodeId": "1:234", "name": "New Name"}, ...] or {"1:234": "New Name", ...}'));
+      console.log(chalk.red('Invalid JSON. Expected: [{"id": "1:234", "name": "New Name"}, ...] or {"1:234": "New Name", ...}'));
       return;
     }
 
-    // Support both array and object format
+    // Support both array and object format. Array form: accept BOTH "id" and
+    // "nodeId" as the ID key — LLMs reach for "id" more naturally and were
+    // silently getting 0 renames before.
     let pairs;
     if (Array.isArray(renames)) {
-      pairs = renames.map(r => ({ id: r.nodeId, name: r.name }));
+      pairs = renames.map(r => ({ id: r.id ?? r.nodeId, name: r.name ?? r.newName }));
     } else {
       pairs = Object.entries(renames).map(([id, name]) => ({ id, name }));
+    }
+    const missing = pairs.filter(p => !p.id || !p.name);
+    if (missing.length) {
+      console.log(chalk.red(`✗ ${missing.length} entr${missing.length === 1 ? 'y is' : 'ies are'} missing id or name. Expected each entry to have both.`));
+      return;
     }
 
     const code = `(async () => {
 const pairs = ${JSON.stringify(pairs)};
 let renamed = 0;
+const notFound = [];
 for (const p of pairs) {
   const node = await figma.getNodeByIdAsync(p.id);
   if (node) {
     node.name = p.name;
     renamed++;
+  } else {
+    notFound.push(p.id);
   }
 }
-return 'Renamed ' + renamed + ' nodes';
+return { renamed, notFound };
 })()`;
 
     const result = figmaEvalSync(code);
-    console.log(chalk.green(result || `✓ Renamed nodes`));
+    let parsed;
+    try { parsed = typeof result === 'string' ? JSON.parse(result.trim()) : result; } catch { parsed = null; }
+    if (parsed && typeof parsed === 'object') {
+      console.log(chalk.green(`✓ Renamed ${parsed.renamed} node(s)`));
+      if (parsed.notFound && parsed.notFound.length) {
+        console.log(chalk.yellow(`  ⚠ ${parsed.notFound.length} ID(s) not found: ${parsed.notFound.join(', ')}`));
+      }
+    } else {
+      console.log(chalk.green(result || `✓ Renamed nodes`));
+    }
   });
 
 // ============ DAEMON ============
