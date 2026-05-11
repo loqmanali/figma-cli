@@ -1770,65 +1770,142 @@ return 'Bound ' + bound + ' properties';
 
 program
   .command('set-batch <json>')
-  .description('Set properties on multiple nodes at once')
-  .action((json) => {
-    checkConnection();
+  .description('Set properties on multiple nodes at once. Each entry: {id|nodeId, fill?, stroke?, strokeWidth?, radius?, opacity?, name?, visible?, x?, y?, width?, height?}. fill/stroke accept hex ("#ff0000") OR variable references ("var:primary", "var:colors/brand-blue", "var:miro:primary") — variable references stay BOUND so theme switches work later.')
+  .option('-c, --collection <name>', 'Pin var:<name> resolution to this collection (same as render --collection).')
+  .action(async (json, options) => {
+    await checkConnection();
     let operations;
     try {
       operations = JSON.parse(json);
     } catch {
-      console.log(chalk.red('Invalid JSON. Expected: [{"nodeId": "1:234", "fill": "#ff0000", "radius": 8}, ...]'));
+      console.log(chalk.red('Invalid JSON. Expected: [{"id": "1:234", "fill": "#ff0000" OR "var:primary", ...}, ...]'));
       return;
     }
+    // Normalize id/nodeId (LLMs reach for `id`). Also tolerate `newName`/`label` for `name`.
+    operations = operations.map(op => ({
+      ...op,
+      nodeId: op.nodeId ?? op.id,
+      name: op.name ?? op.newName ?? op.label,
+    }));
+    const colFilter = options.collection || null;
 
     const code = `(async () => {
 const operations = ${JSON.stringify(operations)};
-let updated = 0;
+const colFilter = ${JSON.stringify(colFilter)};
 
 function hexToRgb(hex) {
   const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
   return result ? { r: parseInt(result[1], 16) / 255, g: parseInt(result[2], 16) / 255, b: parseInt(result[3], 16) / 255 } : null;
 }
 
+// Load the variable map once, with the same scoping rules as render.
+const [allCols, allVars] = await Promise.all([
+  figma.variables.getLocalVariableCollectionsAsync(),
+  figma.variables.getLocalVariablesAsync(),
+]);
+let scoped = null;
+if (colFilter) {
+  const fl = colFilter.toLowerCase();
+  const cols = allCols.filter(c => c.name.toLowerCase() === fl || c.name.toLowerCase().includes(fl));
+  scoped = new Set(cols.map(c => c.id));
+}
+const shadcnIds = new Set(allCols.filter(c => c.name.startsWith('shadcn')).map(c => c.id));
+const varCache = {};
+const register = (v) => {
+  if (!varCache[v.name]) varCache[v.name] = v;
+  const slash = v.name.lastIndexOf('/');
+  if (slash >= 0) {
+    const tail = v.name.slice(slash + 1);
+    if (tail && !varCache[tail]) varCache[tail] = v;
+  }
+};
+const qualified = {};
+for (const v of allVars) {
+  const col = allCols.find(c => c.id === v.variableCollectionId);
+  if (!col) continue;
+  qualified[col.name.toLowerCase() + ':' + v.name] = v;
+  const slash = v.name.lastIndexOf('/');
+  if (slash >= 0) qualified[col.name.toLowerCase() + ':' + v.name.slice(slash + 1)] = v;
+}
+if (scoped) {
+  for (const v of allVars) if (scoped.has(v.variableCollectionId)) register(v);
+} else {
+  for (const v of allVars) if (shadcnIds.has(v.variableCollectionId)) register(v);
+  for (const v of allVars) if (!shadcnIds.has(v.variableCollectionId)) register(v);
+}
+const lookupVar = (ref) => {
+  // Accept "primary", "colors/primary", "miro:primary" — return Variable or null
+  if (ref.includes(':')) {
+    const [cn, vn] = ref.split(':', 2);
+    return qualified[cn.toLowerCase() + ':' + vn] || varCache[vn] || null;
+  }
+  return varCache[ref] || null;
+};
+const setPaintColor = (input) => {
+  // Returns a Paint with a SOLID color, either hex (frozen) or variable-bound.
+  if (typeof input === 'string' && input.startsWith('var:')) {
+    const ref = input.slice(4);
+    const v = lookupVar(ref);
+    if (!v) return { _err: 'variable not found: ' + ref };
+    return figma.variables.setBoundVariableForPaint(
+      { type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', v
+    );
+  }
+  const rgb = hexToRgb(input);
+  return rgb ? { type: 'SOLID', color: rgb } : { _err: 'invalid color: ' + input };
+};
+
+let updated = 0;
+const notFound = [];
+const errors = [];
+
 for (const op of operations) {
   const node = await figma.getNodeByIdAsync(op.nodeId);
-  if (!node) continue;
+  if (!node) { notFound.push(op.nodeId); continue; }
+  let touched = false;
 
-  if (op.fill && 'fills' in node) {
-    const rgb = hexToRgb(op.fill);
-    if (rgb) node.fills = [{ type: 'SOLID', color: rgb }];
+  if (op.fill !== undefined && 'fills' in node) {
+    const paint = setPaintColor(op.fill);
+    if (paint._err) errors.push(op.nodeId + ': ' + paint._err);
+    else { node.fills = [paint]; touched = true; }
   }
-  if (op.stroke && 'strokes' in node) {
-    const rgb = hexToRgb(op.stroke);
-    if (rgb) node.strokes = [{ type: 'SOLID', color: rgb }];
+  if (op.stroke !== undefined && 'strokes' in node) {
+    const paint = setPaintColor(op.stroke);
+    if (paint._err) errors.push(op.nodeId + ': ' + paint._err);
+    else { node.strokes = [paint]; touched = true; }
   }
-  if (op.strokeWidth !== undefined && 'strokeWeight' in node) {
-    node.strokeWeight = op.strokeWidth;
-  }
-  if (op.radius !== undefined && 'cornerRadius' in node) {
-    node.cornerRadius = op.radius;
-  }
-  if (op.opacity !== undefined && 'opacity' in node) {
-    node.opacity = op.opacity;
-  }
-  if (op.name && 'name' in node) {
-    node.name = op.name;
-  }
-  if (op.visible !== undefined && 'visible' in node) {
-    node.visible = op.visible;
-  }
-  if (op.x !== undefined) node.x = op.x;
-  if (op.y !== undefined) node.y = op.y;
+  if (op.strokeWidth !== undefined && 'strokeWeight' in node) { node.strokeWeight = op.strokeWidth; touched = true; }
+  if (op.radius !== undefined && 'cornerRadius' in node) { node.cornerRadius = op.radius; touched = true; }
+  if (op.opacity !== undefined && 'opacity' in node) { node.opacity = op.opacity; touched = true; }
+  if (op.name && 'name' in node) { node.name = op.name; touched = true; }
+  if (op.visible !== undefined && 'visible' in node) { node.visible = op.visible; touched = true; }
+  if (op.x !== undefined) { node.x = op.x; touched = true; }
+  if (op.y !== undefined) { node.y = op.y; touched = true; }
   if (op.width !== undefined && op.height !== undefined && 'resize' in node) {
-    node.resize(op.width, op.height);
+    node.resize(op.width, op.height); touched = true;
   }
-  updated++;
+  if (touched) updated++;
 }
-return 'Updated ' + updated + ' nodes';
+return { updated, notFound, errors };
 })()`;
 
-    const result = figmaEvalSync(code);
-    console.log(chalk.green(result || `✓ Updated nodes`));
+    try {
+      const r = await daemonExec('eval', { code });
+      const data = typeof r === 'string' ? (() => { try { return JSON.parse(r); } catch { return null; } })() : r;
+      if (data && typeof data === 'object' && 'updated' in data) {
+        console.log(chalk.green(`✓ Updated ${data.updated} node(s)`));
+        if (data.notFound && data.notFound.length) {
+          console.log(chalk.yellow(`  ⚠ ${data.notFound.length} ID(s) not found: ${data.notFound.join(', ')}`));
+        }
+        if (data.errors && data.errors.length) {
+          for (const e of data.errors) console.log(chalk.yellow('  ⚠ ' + e));
+        }
+      } else {
+        console.log(chalk.green(r || `✓ Updated nodes`));
+      }
+    } catch (e) {
+      handleEvalError(e);
+    }
   });
 
 program
