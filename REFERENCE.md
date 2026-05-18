@@ -473,7 +473,7 @@ Or use `eval` with native Figma API for maximum control (see below).
 
 ## Safe Mode Component Creation
 
-**DO NOT use render-batch for components with text in Safe Mode.** Use `eval` with native Figma API:
+`render` and `render-batch` both work for components with text in Safe Mode — fonts are loaded automatically and characters set correctly. The native-API recipe below is only needed when you want fine-grained control over things JSX doesn't expose (e.g. mixed text styling, multi-stop gradients applied programmatically).
 
 ```javascript
 node src/index.js eval "(async () => {

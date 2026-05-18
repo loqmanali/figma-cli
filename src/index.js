@@ -311,6 +311,15 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
               `Try: node src/index.js daemon restart`
             );
           }
+          // Safe Mode: plugin tab was closed → guide the user back to it
+          // instead of just dumping the raw error.
+          if (/Plugin not connected/i.test(errObj.error)) {
+            throw new Error(
+              'Plugin not connected.\n' +
+              'In Figma: Plugins → Development → FigCli (keep that tab open).\n' +
+              'Or switch to Yolo Mode: node src/index.js connect'
+            );
+          }
           // Clean up error: remove stack trace line numbers for cleaner output
           const cleanError = errObj.error.split('\n')[0];
           throw new Error(cleanError);
@@ -1272,10 +1281,15 @@ program
 
       console.log(chalk.gray('  💡 Tip: Right-click plugin → "Add to toolbar" for one-click access\n'));
 
-      // Wait for plugin connection
+      // Wait for plugin connection. The daemon stays alive after we exit,
+      // so the user can run commands the moment they actually launch the
+      // plugin — but we still want to give them a confirmation when it
+      // happens during onboarding. Bumped 30→90s after user feedback that
+      // 30s wasn't enough time to find the plugin in Figma's menu.
       const pluginSpinner = ora('Waiting for plugin connection...').start();
       let pluginConnected = false;
-      for (let i = 0; i < 30; i++) {  // Wait up to 30 seconds
+      const PLUGIN_CONNECT_MAX_WAIT_S = 90;
+      for (let i = 0; i < PLUGIN_CONNECT_MAX_WAIT_S; i++) {
         await new Promise(r => setTimeout(r, 1000));
         try {
           const pluginToken = getDaemonToken();
@@ -1289,10 +1303,17 @@ program
             break;
           }
         } catch {}
+        // Hint at the halfway mark so users know they can still finish setup.
+        if (i === Math.floor(PLUGIN_CONNECT_MAX_WAIT_S / 2)) {
+          pluginSpinner.text = `Waiting for plugin connection (${PLUGIN_CONNECT_MAX_WAIT_S - i}s left)…`;
+        }
       }
 
       if (!pluginConnected) {
-        pluginSpinner.warn('Plugin not detected. Start the plugin in Figma to connect.');
+        pluginSpinner.warn('Plugin not detected yet — daemon is still listening.');
+        console.log(chalk.gray('\n  The daemon stays running in the background.'));
+        console.log(chalk.gray('  Open ') + chalk.yellow('Plugins → Development → FigCli') + chalk.gray(' in Figma whenever you\'re ready —'));
+        console.log(chalk.gray('  the next CLI command will connect automatically.\n'));
       }
       return;
     }
@@ -9138,6 +9159,149 @@ program
 
     } catch (error) {
       spinner.fail('Failed: ' + error.message);
+    }
+  });
+
+// ============ VARIANTS ============
+// Turn a set of frames OR components into a real Figma Component Set
+// (variant set) with a named variant property. Solves the common case:
+// "I have N frames that should be variants of one component."
+//
+// Usage:
+//   figma-cli variants from 1:2,1:3,1:4 \
+//     --property Size --values Small,Medium,Large --name Button
+//
+// Accepts FRAMEs (auto-promoted to components), GROUPs, or existing
+// COMPONENTs. INSTANCEs are rejected with a clear error.
+
+const variantsCmd = program
+  .command('variants')
+  .description('Build variant sets from frames or components');
+
+variantsCmd
+  .command('from <ids>')
+  .description('Combine frames/components (comma-separated IDs) into a Variant Set')
+  .requiredOption('-p, --property <name>', 'Variant property name (e.g., Size, State, Color)')
+  .requiredOption('-v, --values <values>', 'Comma-separated variant values matching the IDs (e.g., Small,Medium,Large)')
+  .option('-n, --name <name>', 'Name for the resulting Component Set (defaults to first node\'s base name)')
+  .action(async (ids, options) => {
+    await checkConnection();
+
+    const idArr = ids.split(',').map(s => s.trim()).filter(Boolean);
+    const valueArr = options.values.split(',').map(s => s.trim()).filter(Boolean);
+
+    if (idArr.length < 2) {
+      console.error(chalk.red('✗'), 'Need at least 2 IDs to create a Variant Set.');
+      process.exit(1);
+    }
+    if (idArr.length !== valueArr.length) {
+      console.error(chalk.red('✗'), `ID count (${idArr.length}) must equal --values count (${valueArr.length}).`);
+      console.error(chalk.gray(`  ids:    ${idArr.join(', ')}`));
+      console.error(chalk.gray(`  values: ${valueArr.join(', ')}`));
+      process.exit(1);
+    }
+
+    const property = options.property;
+    const setNameArg = options.name || '';
+    const spinner = ora('Building Variant Set...').start();
+
+    const code = `(async () => {
+      const ids = ${JSON.stringify(idArr)};
+      const values = ${JSON.stringify(valueArr)};
+      const property = ${JSON.stringify(property)};
+      const setNameArg = ${JSON.stringify(setNameArg)};
+
+      const components = [];
+      const promoted = [];
+      let baseName = setNameArg;
+
+      for (let i = 0; i < ids.length; i++) {
+        const node = await figma.getNodeByIdAsync(ids[i]);
+        if (!node) {
+          return { error: 'Node not found: ' + ids[i] };
+        }
+        let comp;
+        if (node.type === 'COMPONENT') {
+          if (node.parent && node.parent.type === 'COMPONENT_SET') {
+            return { error: 'Node ' + ids[i] + ' is already a variant inside a Component Set. Pass the source frames or standalone components.' };
+          }
+          comp = node;
+        } else if (node.type === 'FRAME' || node.type === 'GROUP') {
+          comp = figma.createComponentFromNode(node);
+          promoted.push(ids[i]);
+        } else if (node.type === 'INSTANCE') {
+          return { error: 'Node ' + ids[i] + ' is an INSTANCE. Pass the source frame or main component instead.' };
+        } else {
+          return { error: 'Unsupported type for ' + ids[i] + ': ' + node.type + '. Must be FRAME, GROUP, or COMPONENT.' };
+        }
+        if (!baseName) {
+          // Derive base name from first node: strip "/Variant", ", Prop=Val", or trailing size words.
+          let n = (comp.name || 'Component');
+          n = n.replace(/\\s*,\\s*[^,=]+=[^,]+(?:,\\s*[^,=]+=[^,]+)*\\s*$/, '');
+          n = n.replace(/\\s*\\/.*$/, '');
+          n = n.trim() || 'Component';
+          baseName = n;
+        }
+        components.push({ comp, value: values[i] });
+      }
+
+      // Rename so Figma's combineAsVariants creates exactly one variant
+      // property. "BaseName, Size=Small" would parse as TWO properties
+      // (the bare prefix becomes an unnamed "Property 1"), so we use
+      // pure "Property=Value" naming and let the Component Set carry the
+      // BaseName separately.
+      for (const { comp, value } of components) {
+        comp.name = property + '=' + value;
+      }
+
+      // combineAsVariants requires all components to belong to the same parent.
+      // We hoist them to currentPage to guarantee this regardless of where the
+      // source frames lived (e.g. nested inside a layout frame).
+      const page = figma.currentPage;
+      for (const { comp } of components) {
+        if (comp.parent !== page) {
+          page.appendChild(comp);
+        }
+      }
+
+      let set;
+      try {
+        set = figma.combineAsVariants(components.map(c => c.comp), page);
+      } catch (err) {
+        return { error: 'combineAsVariants failed: ' + (err && err.message ? err.message : String(err)) };
+      }
+      set.name = baseName;
+
+      figma.currentPage.selection = [set];
+      figma.viewport.scrollAndZoomIntoView([set]);
+
+      return {
+        id: set.id,
+        name: set.name,
+        property,
+        values,
+        promotedCount: promoted.length,
+        count: components.length,
+        variantIds: components.map(c => c.comp.id)
+      };
+    })()`;
+
+    try {
+      const r = await fastEval(code);
+      if (r && r.error) {
+        spinner.fail(r.error);
+        process.exit(1);
+      }
+      spinner.succeed(`Created Variant Set "${r.name}"`);
+      if (r.promotedCount > 0) {
+        console.log(chalk.gray(`  Promoted ${r.promotedCount} frame(s) to components`));
+      }
+      console.log(chalk.gray(`  Property: ${chalk.white(r.property)}`));
+      r.values.forEach(v => console.log(chalk.gray(`    ${r.property}=${v}`)));
+      console.log(chalk.cyan(`  ${r.id}`));
+    } catch (e) {
+      spinner.fail('Failed: ' + (e.message || String(e)));
+      process.exit(1);
     }
   });
 

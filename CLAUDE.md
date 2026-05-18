@@ -21,6 +21,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "export as PNG/SVG" | `figma-cli export png` |
 | "show all variants" | `figma-cli combos` |
 | "create size variants" | `figma-cli sizes --base small` |
+| "make these frames a variant set" / "combine into variants" | `figma-cli variants from <ids> --property Size --values Small,Medium,Large --name Button` |
+| "combine existing components into a variant set" | `figma-cli prop combine <ids> --name Button` |
 | "create a slot" | `figma-cli slot create "Name"` |
 | "list slots" | `figma-cli slot list` |
 | "reset slot" | `figma-cli slot reset` |
@@ -193,7 +195,7 @@ figma-cli set fill "var:primary"
 
 **Safe Mode:** `figma-cli connect --safe` - Plugin-based, no Figma modification. Then: Plugins > Development > FigCli.
 
-**Safe Mode caveat:** `render-batch` does NOT render text properly. Use `eval` with direct Figma API for components with text (see REFERENCE.md "Safe Mode Component Creation").
+**Safe Mode:** `render` and `render-batch` work the same as in Yolo Mode, including text. Use `eval` with the native Figma API only when JSX can't express what you need.
 
 ---
 
@@ -367,6 +369,28 @@ figma-cli slot add "slot-id" --component "comp-id"
 ```
 
 JSX: `<Slot name="Content" flex="col" gap={8} w="fill" />` (creates real slot when parent is component)
+
+---
+
+## Variant Sets (Frames or Components → Component Set)
+
+When a user has N frames (or N components) that should become one component with variants, use `variants from`. It auto-promotes any FRAMEs to COMPONENTs, renames them `Property=Value` so Figma derives exactly one variant property, then calls `figma.combineAsVariants`. The result is a real Component Set you can swap variants on in the right panel.
+
+```bash
+# Frames → variant set in one call
+figma-cli variants from 1:2,1:3,1:4 \
+  --property Size --values Small,Medium,Large --name Button
+
+# Works for any property axis: state, color, density, intent
+figma-cli variants from 5:10,5:11 --property State --values Default,Hover
+```
+
+**When NOT to use it:**
+- One frame that should just become a single component → use `node to-component`.
+- Components that are already inside a Component Set → already done.
+- You want to swap variant axes / rename an existing property → use `prop` subcommands.
+
+**Naming gotcha:** the variant *property* name lives only on the property (`Size`, `State`, …). Don't prefix the values with the component name — `--values Button-Small,Button-Medium` would create variants literally named that.
 
 ---
 
