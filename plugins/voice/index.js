@@ -194,6 +194,17 @@ const toolHandlers = {
   },
 
   async figma_component_list() { return runFigmaCliFallback(['component', 'list']); },
+
+  async figma_gradient_extract({ image_path, mode, apply_to, direction, stops, blur }) {
+    const args = ['gradient', 'extract', image_path];
+    if (mode) args.push('--mode', mode);
+    if (apply_to) args.push('--apply-to', apply_to);
+    if (direction) args.push('--direction', direction);
+    if (stops) args.push('--stops', String(stops));
+    if (blur != null) args.push('--blur', String(blur));
+    args.push('--json');
+    return runFigmaCliFallback(args, { timeout: 60000 });
+  },
 };
 
 async function dispatchTool(name, input) {

@@ -97,5 +97,43 @@
     "name": "figma_component_list",
     "description": "List all components in the current Figma file.",
     "input_schema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "figma_gradient_extract",
+    "description": "Extract a gradient from a raster image (PNG/JPG) on disk and optionally apply it to a Figma node. Two modes: 'linear' extracts a 2/3/5-stop top-bottom or left-right gradient (good for backgrounds with a single dominant axis). 'mesh' approximates a mesh gradient by sampling key color anchors and building a blur-stack inside a target Frame (smooth blob-blended look, good for blossom/aurora wallpapers). Auto-trims black/transparent image borders and auto-detects direction in linear mode.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "image_path": {
+          "type": "string",
+          "description": "Absolute path to the source image. PNG or JPG."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["linear", "mesh"],
+          "description": "linear (default) = single GRADIENT_LINEAR paint with 2-5 stops. mesh = stack of LAYER_BLUR ellipses inside a Frame for a smooth 2D mesh-like look."
+        },
+        "apply_to": {
+          "type": "string",
+          "description": "Optional Figma node id. For mode=linear this must be a node with fills; for mode=mesh it MUST be a FRAME (the frame's children are replaced with the blur-stack)."
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["auto", "vertical", "horizontal"],
+          "description": "[linear only] Force gradient direction. Default 'auto'."
+        },
+        "stops": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 5,
+          "description": "[linear only] Number of color stops. Default 3."
+        },
+        "blur": {
+          "type": "number",
+          "description": "[mesh only] Blur radius as fraction of min(W, H). Default 0.38. Lower = sharper blobs; higher = smoother blend."
+        }
+      },
+      "required": ["image_path"]
+    }
   }
 ]

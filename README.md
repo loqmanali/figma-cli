@@ -52,6 +52,7 @@ You say it in plain English. The AI translates it into figma-cli calls. Figma up
 **Visual richness**
 - Drop shadows, inner shadows, layer/background blur
 - Linear, radial, angular, diamond gradients
+- **Extract gradients from images** — point at a PNG/JPG, get a Figma-ready paint or a mesh-like blur-stack wallpaper (`figma-cli gradient extract` + `--mode linear|mesh`)
 - Image fills from any URL
 - Layout grids (12-column, baseline, custom)
 - Sections to organize the canvas
@@ -152,6 +153,37 @@ Preview the agent context without touching variables:
 ```bash
 figma-cli tokens import-design-md /path/to/DESIGN.md --print-context
 ```
+
+---
+
+## Extract gradients from images
+
+Point figma-cli at any PNG or JPG and it samples the image to rebuild the gradient inside Figma. Two modes:
+
+**`--mode linear`** (default) — single GRADIENT_LINEAR paint with 2-5 stops. Auto-detects vertical vs horizontal direction. Robust to image borders (auto-trims) and content-heavy images (histogram-binned background detection per band, so banner images with text/photos still resolve to the underlying background gradient).
+
+```bash
+# Just sample and print the recipe (hex stops + CSS string)
+figma-cli gradient extract ~/Downloads/banner.png
+
+# Apply directly to a Figma node as a fill
+figma-cli gradient extract ~/Downloads/banner.png --apply-to 82:365
+
+# Force a horizontal sweep, 5 stops
+figma-cli gradient extract ~/Downloads/banner.png --direction horizontal --stops 5
+```
+
+**`--mode mesh`** — approximates a mesh gradient (the smooth 2D color blend you get from Mesh.app or Photoshop) using the classic Figma technique: a stack of heavily layer-blurred ellipses inside a clipping frame. Samples 4 corners, 2 side accents, and the brightest + warmest hotspots, then builds the blur-stack inside a target Frame.
+
+```bash
+# Build a blossom-style mesh wallpaper inside an existing frame
+figma-cli gradient extract ~/Downloads/blossom.png --mode mesh --apply-to 1:3
+
+# Softer blend
+figma-cli gradient extract ~/Downloads/blossom.png --mode mesh --apply-to 1:3 --blur 0.5
+```
+
+For mesh mode the target must be a Frame — its children are replaced with the blur-blob stack and `clipsContent` is enabled. Figma has no native mesh gradient (`GRADIENT_MESH` is explicitly rejected by the Plugin API), so this is the best procedural approximation available.
 
 ---
 

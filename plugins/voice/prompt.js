@@ -54,6 +54,7 @@ Tool names exposed to you map 1:1 to figma-cli commands. The mapping:
   figma_a11y_audit     → node src/index.js a11y audit
   figma_get_selection  → figma_eval helper that returns current selection info
   figma_component_list → node src/index.js component list
+  figma_gradient_extract → node src/index.js gradient extract <image> [--mode linear|mesh] [--apply-to <id>]
 `;
 
 // Returns Anthropic's system-prompt array format with prompt caching enabled

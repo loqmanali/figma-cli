@@ -19,6 +19,9 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "find nodes named X" | `figma-cli find "X"` |
 | "what's on canvas" | `figma-cli canvas info` |
 | "export as PNG/SVG" | `figma-cli export png` |
+| "extract gradient from image" / "rebuild this gradient" | `figma-cli gradient extract <image>` |
+| "apply image gradient to a frame" | `figma-cli gradient extract <image> --apply-to <nodeId>` |
+| "match this mesh / blossom / aurora background" | `figma-cli gradient extract <image> --mode mesh --apply-to <frameId>` |
 | "show all variants" | `figma-cli combos` |
 | "create size variants" | `figma-cli sizes --base small` |
 | "make these frames a variant set" / "combine into variants" | `figma-cli variants from <ids> --property Size --values Small,Medium,Large --name Button` |

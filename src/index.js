@@ -17,6 +17,7 @@ import * as apiDocs from './api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort, getFigmaBinaryPath } from './figma-patch.js';
 import { listComponents, getComponent, getAllComponents, VISUAL_COMPONENTS } from './shadcn.js';
 import { listBlocks, getBlock } from './blocks/index.js';
+import { extractGradient, extractMesh, buildFigmaPaint, buildCssString } from './gradient-extractor.js';
 import {
   nullDevice, killPort, getPortPid, sleepAfterStop,
   startFigmaApp, killFigmaApp,
@@ -3435,6 +3436,176 @@ return 'Created ' + type.toLowerCase() + ' token: ${name}';
       console.log(chalk.green(result?.trim() || `✓ Created token: ${name}`));
     } catch (error) {
       console.log(chalk.red(`✗ Failed to create token: ${name}`));
+    }
+  });
+
+// ============ GRADIENT ============
+
+const gradient = program
+  .command('gradient')
+  .description('Extract gradients from images and apply them to nodes');
+
+gradient
+  .command('extract <image>')
+  .description('Extract a gradient or mesh-like gradient from an image (PNG/JPG)')
+  .option('--mode <mode>', 'linear (1D, two/three-stop) or mesh (blur-stack approximation)', 'linear')
+  .option('--apply-to <nodeId>', 'Apply the extracted gradient to this node. linear: sets fills. mesh: populates the frame with blur-blob children.')
+  .option('--direction <dir>', '[linear] Force direction: auto|vertical|horizontal', 'auto')
+  .option('--stops <n>', '[linear] Number of color stops (2, 3, or 5)', '3')
+  .option('--blur <frac>', '[mesh] Blur radius as fraction of min(W, H). Default 0.38.')
+  .option('--no-trim', "Don't auto-trim solid/transparent image borders")
+  .option('--json', 'Output JSON instead of human-readable')
+  .action(async (imagePath, options) => {
+    const path = imagePath.startsWith('~')
+      ? join(homedir(), imagePath.slice(1))
+      : imagePath;
+    if (!existsSync(path)) {
+      console.error(chalk.red(`Image not found: ${path}`));
+      process.exit(1);
+    }
+
+    const mode = (options.mode || 'linear').toLowerCase();
+    if (mode !== 'linear' && mode !== 'mesh') {
+      console.error(chalk.red(`Unknown mode "${mode}". Use linear or mesh.`));
+      process.exit(1);
+    }
+
+    // ─── LINEAR mode ───
+    if (mode === 'linear') {
+      let result;
+      try {
+        result = extractGradient(path, {
+          direction: options.direction,
+          stops: Math.max(2, Math.min(5, parseInt(options.stops, 10) || 3)),
+          trim: options.trim !== false,
+        });
+      } catch (e) {
+        console.error(chalk.red(`Extraction failed: ${e.message}`));
+        process.exit(1);
+      }
+
+      const css = buildCssString(result);
+      const hexes = result.stops.map((s) =>
+        '#' + s.rgb.map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()
+      );
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          mode: 'linear',
+          direction: result.direction,
+          angle: result.angle,
+          stops: result.stops.map((s, i) => ({ position: s.position, hex: hexes[i], rgb: s.rgb })),
+          css,
+          innerBox: result.box,
+        }, null, 2));
+      } else {
+        console.log();
+        console.log(chalk.cyan('  Gradient extracted (linear)'));
+        console.log(chalk.gray('  ─────────────────────────────────────────'));
+        console.log(chalk.white(`  Direction: ${result.direction} (${result.angle}deg)`));
+        console.log(chalk.white(`  Stops:`));
+        result.stops.forEach((s, i) => {
+          const pct = Math.round(s.position * 100);
+          console.log(chalk.gray(`    ${String(pct).padStart(3)}%  `) + chalk.white(hexes[i]) + chalk.gray(`  rgb(${s.rgb.join(', ')})`));
+        });
+        console.log(chalk.white(`  CSS:`));
+        console.log(chalk.gray(`    ${css}`));
+      }
+
+      if (options.applyTo) {
+        checkConnection();
+        const paint = buildFigmaPaint(result);
+        const code = `
+          (async () => {
+            await figma.loadAllPagesAsync();
+            const __gNode = await figma.getNodeByIdAsync(${JSON.stringify(options.applyTo)});
+            if (!__gNode) throw new Error('Node not found: ' + ${JSON.stringify(options.applyTo)});
+            if (!('fills' in __gNode)) throw new Error('Node does not support fills: ' + __gNode.type);
+            __gNode.fills = [${JSON.stringify(paint)}];
+            return JSON.stringify({ name: __gNode.name, type: __gNode.type });
+          })()
+        `;
+        const spinner = options.json ? null : ora('Applying gradient...').start();
+        try {
+          const res = await figmaEval(code);
+          const info = JSON.parse(res);
+          if (spinner) spinner.succeed(`Applied to ${info.name} (${info.type})`);
+          else if (!options.json) console.log(chalk.green(`  ✓ Applied to ${info.name}`));
+        } catch (e) {
+          if (spinner) spinner.fail(`Apply failed: ${e.message}`);
+          else console.error(chalk.red(`Apply failed: ${e.message}`));
+          process.exit(1);
+        }
+      }
+      return;
+    }
+
+    // ─── MESH mode ───
+    let recipe;
+    try {
+      recipe = extractMesh(path, { trim: options.trim !== false });
+      if (options.blur) recipe.blurFraction = Math.max(0.05, Math.min(0.8, parseFloat(options.blur)));
+    } catch (e) {
+      console.error(chalk.red(`Mesh extraction failed: ${e.message}`));
+      process.exit(1);
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(recipe, null, 2));
+    } else {
+      console.log();
+      console.log(chalk.cyan('  Mesh gradient extracted (blur-stack recipe)'));
+      console.log(chalk.gray('  ─────────────────────────────────────────'));
+      console.log(chalk.white(`  Base:  `) + chalk.gray(recipe.base));
+      console.log(chalk.white(`  Blobs: `) + chalk.gray(`${recipe.blobs.length} ellipses, blur ${(recipe.blurFraction * 100).toFixed(0)}% of min side`));
+      recipe.blobs.forEach((b, i) => {
+        const pos = `(${b.fx.toFixed(2)}, ${b.fy.toFixed(2)})`;
+        console.log(chalk.gray(`    ${i + 1}.  ${pos.padEnd(18)} r=${b.r.toFixed(2)}  `) + chalk.white(b.color));
+      });
+    }
+
+    if (options.applyTo) {
+      checkConnection();
+      const code = `
+        (async () => {
+          await figma.loadAllPagesAsync();
+          const __target = await figma.getNodeByIdAsync(${JSON.stringify(options.applyTo)});
+          if (!__target) throw new Error('Node not found: ' + ${JSON.stringify(options.applyTo)});
+          if (__target.type !== 'FRAME') throw new Error('Mesh mode requires a FRAME target; got ' + __target.type);
+          const W = __target.width, H = __target.height;
+          const D = Math.min(W, H);
+          // Clear existing children
+          for (const c of [...__target.children]) c.remove();
+          __target.clipsContent = true;
+          const __base = ${JSON.stringify(recipe.base)};
+          const __hex = (h) => { h = h.replace('#', ''); return { r: parseInt(h.slice(0,2),16)/255, g: parseInt(h.slice(2,4),16)/255, b: parseInt(h.slice(4,6),16)/255 }; };
+          __target.fills = [{ type:'SOLID', color: __hex(__base), opacity:1, visible:true, blendMode:'NORMAL' }];
+          const __blobs = ${JSON.stringify(recipe.blobs)};
+          const __blur = Math.round(D * ${recipe.blurFraction});
+          for (const b of __blobs) {
+            const e = figma.createEllipse();
+            const R = Math.round(D * b.r);
+            e.resize(R * 2, R * 2);
+            e.x = b.fx * W - R;
+            e.y = b.fy * H - R;
+            e.fills = [{ type:'SOLID', color: __hex(b.color), opacity:1, visible:true, blendMode:'NORMAL' }];
+            e.effects = [{ type:'LAYER_BLUR', radius: __blur, visible: true }];
+            __target.appendChild(e);
+          }
+          return JSON.stringify({ name: __target.name, blobs: __blobs.length, blur: __blur });
+        })()
+      `;
+      const spinner = options.json ? null : ora('Building blur-stack...').start();
+      try {
+        const res = await figmaEval(code);
+        const info = JSON.parse(res);
+        if (spinner) spinner.succeed(`Mesh built on ${info.name} (${info.blobs} blobs, blur ${info.blur}px)`);
+        else if (!options.json) console.log(chalk.green(`  ✓ Mesh built on ${info.name}`));
+      } catch (e) {
+        if (spinner) spinner.fail(`Apply failed: ${e.message}`);
+        else console.error(chalk.red(`Apply failed: ${e.message}`));
+        process.exit(1);
+      }
     }
   });
 
