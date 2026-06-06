@@ -869,7 +869,10 @@ program
     const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
     // Format B: our DESIGN.md extraction with `## Machine-readable tokens` JSON block
     const hasJsonBlock = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
-    const isDesignMd = hasFrontmatterTokens || hasJsonBlock;
+    // Format C: prose design system — role-labelled `**Name** (`#hex`): role` rows
+    const proseColorRows = (content.match(/\*\*[^*]+\*\*\s*\(`#[0-9a-fA-F]{3,8}`\)\s*:/g) || []).length;
+    const hasProseTokens = proseColorRows >= 3;
+    const isDesignMd = hasFrontmatterTokens || hasJsonBlock || hasProseTokens;
     if (isDesignMd) {
       // Forward to the existing implementation via Commander's own machinery.
       const args = ['tokens', 'import-design-md', file];

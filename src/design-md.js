@@ -84,6 +84,74 @@ function normalizeYamlSpec(spec) {
   return out;
 }
 
+/** Slugify a display name into a token-safe key: "Cursor Cream" -> "cursor-cream". */
+function slugify(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/** Classify a prose color row by its role, from name + description text. */
+function roleOf(name, desc) {
+  const b = `${name} ${desc}`.toLowerCase();
+  if (/\b(cta|accent|brand|link)\b/.test(b)) return 'accent';
+  if (b.includes('page background') || b.includes('primary surface') ||
+      b.includes('canvas') || (b.includes('page') && b.includes('background'))) return 'bg';
+  if (b.includes('text') || b.includes('heading')) return 'text';
+  if (b.includes('surface') || b.includes('card') || b.includes('background')) return 'surface';
+  if (b.includes('border') || b.includes('hairline')) return 'border';
+  return 'other';
+}
+
+// Prose color rows: `**Cursor Cream** (`#f2f1ed`): Page background, primary surface`
+const PROSE_COLOR_ROW = /\*\*(.+?)\*\*\s*\(`([^`]+)`\)\s*:\s*([^.\n]+)/g;
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/**
+ * Format C: prose DESIGN.md (awesome-design-md brand style) with role-labelled
+ * color rows but no machine-readable block. Buckets rows by role and assigns
+ * the canonical semantic names figma-cli/figmachat expect (canvas, ink,
+ * primary, …), falling back to slugged display names for the rest. Returns the
+ * normalized token shape, or null if the file isn't a prose design system.
+ */
+function parseProseSpec(text) {
+  const rows = [];
+  const seen = new Set();
+  let m;
+  PROSE_COLOR_ROW.lastIndex = 0;
+  while ((m = PROSE_COLOR_ROW.exec(text)) !== null) {
+    const color = m[2].trim();
+    if (!HEX_RE.test(color)) continue;            // Figma vars need RGB; skip oklab/rgba
+    const key = color.toLowerCase();
+    if (seen.has(key)) continue;                  // dedupe by hex
+    seen.add(key);
+    rows.push({ name: m[1].trim(), color, desc: m[3].trim(), role: roleOf(m[1], m[3]) });
+  }
+  if (rows.length < 2) return null;               // 2 = a legit B&W system (e.g. Figma)
+
+  const CANON = {
+    bg: ['canvas', 'canvas-subtle'],
+    text: ['ink', 'body'],
+    accent: ['primary', 'accent'],
+    surface: ['surface', 'surface-2', 'surface-3', 'surface-4'],
+    border: ['hairline', 'border-strong'],
+    other: [],
+  };
+  const color = {};
+  const used = new Set();
+  const assign = (base, hex) => {
+    let n = base, i = 2;
+    while (used.has(n)) n = `${base}-${i++}`;
+    used.add(n);
+    color[n] = hex;
+  };
+  for (const role of ['bg', 'text', 'accent', 'surface', 'border', 'other']) {
+    rows.filter(r => r.role === role).forEach((r, idx) => {
+      const canon = CANON[role][idx];
+      assign(canon || slugify(r.name), r.color);
+    });
+  }
+  return { color, typography: {}, radius: {}, spacing: {}, shadow: {}, meta: {} };
+}
+
 export function parseDesignMd(filepath) {
   const text = fs.readFileSync(filepath, 'utf-8');
 
@@ -114,36 +182,52 @@ export function parseDesignMd(filepath) {
   // Format B: `## Machine-readable tokens` + ```json design-tokens block
   // (our original DESIGN.md extraction format)
   const match = text.match(JSON_BLOCK_RE);
-  if (!match) {
-    throw new Error(
-      `Couldn't parse ${filepath}. Expected one of:\n` +
-      `  - YAML frontmatter with top-level \`colors:\` / \`typography:\` (Stitch / getdesign.md style)\n` +
-      `  - "## Machine-readable tokens" section with a \`\`\`json design-tokens\`\`\` block`
-    );
-  }
-  let tokens;
-  try {
-    tokens = JSON.parse(match[1]);
-  } catch (e) {
-    throw new Error(`Token JSON block is not valid JSON: ${e.message}`);
+  if (match) {
+    let tokens;
+    try {
+      tokens = JSON.parse(match[1]);
+    } catch (e) {
+      throw new Error(`Token JSON block is not valid JSON: ${e.message}`);
+    }
+
+    // Pull the document summary fields too — useful for the figmachat context.
+    const identityMatch = text.match(/^\*\*In one line:\*\*\s+(.+)$/m);
+    const sourceMatch = text.match(/^source:\s+(.+)$/m);
+    const componentSections = [...text.matchAll(/^### Page:\s+(.+)$/gm)]
+      .map(m => m[1].trim())
+      .filter(p => !/^(About|Read me|Color|Effects|Spacing block|Screens|Utilities)$/i.test(p));
+
+    return {
+      tokens,
+      meta: {
+        source: tokens.meta?.source || sourceMatch?.[1] || 'unknown',
+        generated: tokens.meta?.generated,
+        identity: identityMatch?.[1],
+        components: componentSections,
+      },
+    };
   }
 
-  // Pull the document summary fields too — useful for the figmachat context.
-  const identityMatch = text.match(/^\*\*In one line:\*\*\s+(.+)$/m);
-  const sourceMatch = text.match(/^source:\s+(.+)$/m);
-  const componentSections = [...text.matchAll(/^### Page:\s+(.+)$/gm)]
-    .map(m => m[1].trim())
-    .filter(p => !/^(About|Read me|Color|Effects|Spacing block|Screens|Utilities)$/i.test(p));
+  // Format C: prose DESIGN.md (awesome-design-md brand style) — role-labelled
+  // `**Name** (`#hex`): role` rows, no machine-readable block.
+  const proseTokens = parseProseSpec(text);
+  if (proseTokens) {
+    return {
+      tokens: proseTokens,
+      meta: {
+        source: filepath.split('/').pop().replace(/\.md$/, ''),
+        identity: text.match(/^#\s+(.+)$/m)?.[1],
+        components: [],
+      },
+    };
+  }
 
-  return {
-    tokens,
-    meta: {
-      source: tokens.meta?.source || sourceMatch?.[1] || 'unknown',
-      generated: tokens.meta?.generated,
-      identity: identityMatch?.[1],
-      components: componentSections,
-    },
-  };
+  throw new Error(
+    `Couldn't parse ${filepath}. Expected one of:\n` +
+    `  - YAML frontmatter with top-level \`colors:\` / \`typography:\` (Stitch / getdesign.md style)\n` +
+    `  - "## Machine-readable tokens" section with a \`\`\`json design-tokens\`\`\` block\n` +
+    `  - prose color rows like \`**Name** (\`#hex\`): role\` (awesome-design-md style)`
+  );
 }
 
 /** Produce a one-shot summary string for figmachat to drop into the system prompt. */
