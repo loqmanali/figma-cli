@@ -4,315 +4,127 @@
   <a href="https://intodesignsystems.com"><img src="https://img.shields.io/badge/Into_Design_Systems-intodesignsystems.com-ff6b35" alt="Into Design Systems"></a>
   <img src="https://img.shields.io/badge/Figma-Desktop-purple" alt="Figma Desktop">
   <img src="https://img.shields.io/badge/No_API_Key-Required-green" alt="No API Key">
-  <img src="https://img.shields.io/badge/AI--Ready-Local%20%2B%20Cloud%20LLMs-blue" alt="AI Ready">
-  <img src="https://img.shields.io/badge/DESIGN.md-Import-orange" alt="DESIGN.md Import">
+  <img src="https://img.shields.io/badge/Talk_to-Claude-blue" alt="Talk to Claude">
 </p>
 
 <p align="center">
-  <b>Talk to your AI. Watch Figma build.</b><br>
-  Connect Claude Code, opencode, Cursor, or a local LLM directly to Figma Desktop.<br>
-  No API key. No copy-paste. No plugin you have to babysit.
+  <b>Talk in plain English. Watch Figma build.</b><br>
+  You describe what you want, an AI assistant builds it live in your Figma Desktop.<br>
+  No API key. No copy-paste. No plugin to babysit. No code to write.
 </p>
 
 ---
 
-## ⭐ Import a whole design system in one command
+## What is this?
 
-Drop a `DESIGN.md` onto the CLI and figma-cli ingests the entire thing — colors, radii, typography — and creates Figma variables you can immediately use in renders.
+figma-ds-cli lets an **AI assistant build directly in your Figma Desktop**, while you talk to it in normal language.
 
-```bash
-figma-cli import ~/Downloads/DESIGN.md
-```
+You don't run commands or write code. You open **Claude** in this project and say things like:
 
-**Two formats supported, auto-detected:**
+> "Create three pricing cards."
+> "Use my brand's design system."
+> "Make those buttons look like Stripe."
+> "Check the contrast on this screen."
 
-1. **YAML frontmatter** — top-level `colors:`, `typography:`, `rounded:` / `radius:`, `spacing:` (the Stitch / getdesign.md style — drop in any of the ready-made `DESIGN.md` files from public collections)
-2. **JSON token block** — the `## Machine-readable tokens` + `` ```json design-tokens `` extraction format (Carbon, Material, Polaris, in-house exporters)
+Claude does the rest. Figma updates in real time, in front of you.
 
-No personal access token. No cloud. Drops straight into Figma Desktop via the local daemon.
-
-After import, every render uses `var:primary`, `var:canvas`, `var:radius-md` etc. — the names from your DESIGN.md. Mix this with the local LLM agent (see `figmachat` / `/load`) and the model uses your token vocabulary automatically.
-
-[See full DESIGN.md docs →](#import-a-design-system-from-a-designmd)
+It works with real, editable Figma , actual frames, components, variants and variables , not a flat image. And it runs **locally**: no API key, nothing sent to a cloud service.
 
 ---
 
-## What you can do
+## Setup , let Claude do it for you
 
-You say it in plain English. The AI translates it into figma-cli calls. Figma updates instantly.
+You don't install this by hand. You get **Claude Code**, point it at this project, and ask it to set everything up. Here's the whole thing:
 
-**Design systems**
-- Spin up shadcn/ui components (41 visual + 5 interactive-only, with real Lucide icons)
-- Generate design tokens — shadcn, Tailwind, custom — bound to Light/Dark modes
-- **Import a whole design system from a `DESIGN.md` extraction file** (see below)
-- Build component sets with variants (`Size=Small`, `Size=Medium`, ...)
-- Link components to Storybook, GitHub, or internal docs
-- Add inline annotations to document usage rules and token references
+### 1. Have these ready
+- **Figma Desktop** , installed and open ([download](https://www.figma.com/downloads/)).
+- **Claude Code** , Anthropic's AI assistant for your computer. [Install it here](https://docs.claude.com/en/docs/claude-code) (one command, takes a minute).
 
-**Visual richness**
-- Drop shadows, inner shadows, layer/background blur
-- Linear, radial, angular, diamond gradients
-- **Extract gradients from images** — point at a PNG/JPG, get a Figma-ready paint or a mesh-like blur-stack wallpaper (`figma-cli gradient extract` + `--mode linear|mesh`)
-- Image fills from any URL
-- Layout grids (12-column, baseline, custom)
-- Sections to organize the canvas
+### 2. Get this project onto your computer
+Don't know git? No problem. Open Claude Code anywhere and paste:
 
-**Production-ready output**
-- Export PNG, SVG, JSX, Storybook stories, CSS variables, Tailwind config
-- Accessibility audit: contrast, touch targets, text size
-- Verify component creation with screenshot-based AI checks
+> "Download the figma-cli project from https://github.com/silships/figma-cli into a folder in my home directory, then go into it."
 
-**Built for AI workflows**
-- Offline Figma Plugin API reference (`figma-cli api setup`) — agents read the spec themselves
-- Auto-suggests interface references when commands fail — agents self-correct
-- Same CLI works with Claude Code, opencode, Cursor, or a local LLM via LM Studio / Ollama
+(Or, if you prefer: click the green **Code** button on the GitHub page → **Download ZIP** → unzip it.)
 
-**Voice control (optional)**
-- Push-to-talk: say "create three pricing cards", figma-cli does it
-- macOS only, requires an Anthropic API key
-- `figma-cli plugins install voice && figma-cli plugins setup voice && figma-cli voice`
+### 3. Let Claude install and connect it
+Open Claude Code **inside the project folder** and say:
+
+> "Set up figma-cli and connect it to my Figma."
+
+Claude reads the project's instructions, installs what's needed, and connects to your open Figma Desktop. You watch , you don't type commands.
+
+When it says it's connected, you're done. ✅
+
+### 4. Start designing , just talk
+Now describe what you want:
+
+> "Add my brand colors, then create a primary button and a secondary button."
+
+Claude builds it in Figma instantly.
 
 ---
 
-## Quick start
+## What you can ask for
 
-```bash
-# 1. Install dependencies and link binary
-git clone https://github.com/silships/figma-cli.git
-cd figma-cli
-npm install
+Just say it in plain language. A few examples:
 
-# 2. Connect to Figma
-node src/index.js connect          # Yolo Mode (recommended)
-# Or: node src/index.js connect --safe   (plugin-based, no patching)
+**Build things**
+- "Create 5 pricing cards in a row."
+- "Make a login form."
+- "Build a dashboard layout."
+- "Add a dialog / a calendar / a sidebar." *(40+ shadcn/ui components available)*
 
-# 3. Open your AI tool of choice and tell it about figma-cli.
-#    Claude Code, opencode, cursor — anything that can run shell commands.
-```
+**Use a design system**
+- "Add shadcn colors" or "add Tailwind colors."
+- "Make these in Stripe's style" / "use the Linear design system."
+- "Use my brand's variables on these cards."
 
-That's it. Tell your AI:
+**Bring your own brand**
+- "Import this design system" *(point it at a `DESIGN.md` file , see below)*
+- "Switch this design from Stripe to Apple." *(swap a whole layout between brands)*
 
-> *"Add shadcn colors, then create a primary button with a soft drop shadow."*
+**Polish & hand off**
+- "Check the color contrast / touch targets / text sizes."
+- "Export this as PNG / SVG."
+- "Turn this into a reusable component with Small / Medium / Large variants."
 
-The AI translates that into figma-cli commands. Figma renders the result in real-time.
-
----
-
-## Run a local LLM (offline-friendly)
-
-figma-cli has zero opinion about which LLM you use. Point any LM-Studio-compatible model at it (`localhost:1234/v1`) via your AI harness. We've tested:
-
-- **Qwen 3.6 35B-A3B** (writer, ~26 tok/s on M4 Max) — good for content and figma-cli command mapping
-- **Qwen 3 Coder 30B-A3B** (LoRA-finetuned on figma-cli) — tighter tool use
-- **GPT-OSS 20B** (smaller, faster) — solid alternative
-
-Setup: install LM Studio, pull the model, start the local server. Your AI harness reads `OPENAI_BASE_URL=http://localhost:1234/v1`. figma-cli does not need to know — it just receives shell commands from whatever's driving it.
-
-If your local LLM gets a command wrong, figma-cli surfaces relevant Figma Plugin API references after the error. The LLM reads the suggestion, looks up the spec, retries:
-
-```
-✗ Error: in addComponentProperty: Default value for instance swap component property is invalid
-
-  💡 Looks like this might map to a Figma Plugin API. Try:
-    figma-cli api ComponentNode (defines "addComponentProperty")
-    figma-cli api ComponentPropertiesMixin (defines "addComponentProperty")
-```
-
-Run `figma-cli api setup` once (5 MB download) to enable this. Works offline forever after.
+You never memorize commands. Claude knows them , you just describe the outcome.
 
 ---
 
-## Import a design system from a DESIGN.md
+## Bring your own design system
 
-If you (or a teammate) extracted a Figma file into a `DESIGN.md` — using any tool that emits the standard format with a `## 11. Machine-readable tokens` section and a `` ```json design-tokens `` code block at the end — figma-cli can ingest it directly:
+Have a brand or a design system? Put it in a single `DESIGN.md` file (colors, type, spacing) and tell Claude:
 
-```bash
-figma-cli import /path/to/DESIGN.md
-```
+> "Import ~/Downloads/my-DESIGN.md into Figma."
 
-(Same thing under the hood: `figma-cli tokens import-design-md /path/to/DESIGN.md`. The short form auto-detects the format.)
-
-This creates Figma variables for every color, radius, and typography token defined in the JSON block. The collection is named after the system's `meta.source` (e.g. "Carbon Design System", "Material 3", "Polaris") unless you pass `-c <name>`.
-
-**Expected JSON shape** (any DESIGN.md following the same convention works — this is format-agnostic, not Carbon-specific):
-
-```json
-{
-  "meta": { "source": "Your Design System", "generated": "2026-01-01" },
-  "color":      { "accent": "#0f62fe", "text-primary": "#161616", ... },
-  "radius":     { "radius-md": 2, "radius-lg": 8, ... },
-  "typography": { "h1": { "fontFamily": "Inter", "fontSize": 70, ... }, ... },
-  "shadow":     { "elev-1": "0 1px 2px rgba(0,0,0,0.05)", ... },
-  "fonts":      ["Inter", "IBM Plex Sans", ...]
-}
-```
-
-**For local LLM agents** — also drop the same file into `figmachat` with `/design /path/to/DESIGN.md`. The agent learns your token names and existing component vocabulary, so future renders use `bg="var:accent"` instead of `bg="#0f62fe"` and reference your existing Button / Card / etc. instead of generating duplicates.
-
-Preview the agent context without touching variables:
-```bash
-figma-cli tokens import-design-md /path/to/DESIGN.md --print-context
-```
+It creates real Figma variables (`primary`, `canvas`, `ink`, `accent`, …) you can use everywhere , and you can switch a design between systems on demand ("now make it look like Vercel"). Ready-made `DESIGN.md` files for popular brands work too.
 
 ---
 
-## Gradients & mesh wallpapers
+## Works offline / with local AI
 
-figma-cli both **generates** gradients from a palette and **extracts** them from existing images.
-
-### Generate a mesh wallpaper from a palette
-
-No image needed — hand it a list of colors and it builds a smooth mesh-gradient wallpaper (heavily layer-blurred ellipses inside a clipping frame, distributed around the canvas):
-
-```bash
-# New 1920x1080 wallpaper from a 5-color palette (random composition each run)
-figma-cli gradient mesh "#FF6B9D,#FEC860,#43E97B,#38A1DB,#A855F7"
-
-# Pick a composition style + softer blend
-figma-cli gradient mesh "#0E0820,#FF1F8E,#00E5FF" --style diagonal --name "Cyberpunk" --blur 0.5
-
-# Reproduce an exact layout with a seed
-figma-cli gradient mesh "#2A3F6A,#FF6F3D,#A14ABE" --style spotlight --seed 42
-
-# Fill an existing frame instead of creating one
-figma-cli gradient mesh "#2A3F6A,#FF6F3D,#A14ABE" --apply-to 1:3
-```
-
-Composition styles (`--style`, default `auto` picks a random one each call so a batch of wallpapers all look different):
-
-- `scatter` — colors spread loosely across the canvas
-- `diagonal` — palette flows corner to corner
-- `bands` — soft horizontal or vertical stripes
-- `drift` — colors cluster to one side and trail off
-- `spotlight` — one large off-center anchor with satellites
-- `corners` — a color anchored in each corner
-
-Color-to-position assignment and per-blob jitter are seeded, so the same `--seed` reproduces a layout exactly while omitting it gives fresh variety. The base fill defaults to the palette average (override with `--base`).
-
-### Extract a gradient from an image
-
-Point figma-cli at any PNG or JPG and it samples the image to rebuild the gradient inside Figma. Two modes:
-
-**`--mode linear`** (default) — single GRADIENT_LINEAR paint with 2-5 stops. Auto-detects vertical vs horizontal direction. Robust to image borders (auto-trims) and content-heavy images (histogram-binned background detection per band, so banner images with text/photos still resolve to the underlying background gradient).
-
-```bash
-# Just sample and print the recipe (hex stops + CSS string)
-figma-cli gradient extract ~/Downloads/banner.png
-
-# Apply directly to a Figma node as a fill
-figma-cli gradient extract ~/Downloads/banner.png --apply-to 82:365
-
-# Force a horizontal sweep, 5 stops
-figma-cli gradient extract ~/Downloads/banner.png --direction horizontal --stops 5
-```
-
-**`--mode mesh`** — approximates a mesh gradient (the smooth 2D color blend you get from Mesh.app or Photoshop) using the classic Figma technique: a stack of heavily layer-blurred ellipses inside a clipping frame. Samples 4 corners, 2 side accents, and the brightest + warmest hotspots, then builds the blur-stack inside a target Frame.
-
-```bash
-# Build a blossom-style mesh wallpaper inside an existing frame
-figma-cli gradient extract ~/Downloads/blossom.png --mode mesh --apply-to 1:3
-
-# Softer blend
-figma-cli gradient extract ~/Downloads/blossom.png --mode mesh --apply-to 1:3 --blur 0.5
-```
-
-For mesh mode the target must be a Frame — its children are replaced with the blur-blob stack and `clipsContent` is enabled. Figma has no native mesh gradient (`GRADIENT_MESH` is explicitly rejected by the Plugin API), so this is the best procedural approximation available.
+Prefer to keep everything on your machine? figma-ds-cli also works with **local LLMs** (via LM Studio or Ollama) , fully offline, no cloud, no key. Ask Claude to "set up the local LLM agent" and it'll walk you through it.
 
 ---
 
-## Absolute positioning, done right
+## For developers
 
-figma-cli implements the [directededges Absolute Positioning spec](https://directededges.github.io/specs/guides/absolute-positioning/) — designers and code platforms agree about edges and centers, but Figma's API forces you to convert manually between raw `x` / `y` and the `constraints` object. figma-cli does the math for you AND sets the matching constraint, so elements stay anchored when the parent resizes.
+Everything above is powered by a CLI that the AI calls for you. If you want to use it directly, script it, or see every command:
 
-**Pin existing nodes by edge:**
+- **[REFERENCE.md](REFERENCE.md)** , full command reference (tokens, render/JSX, components, gradients, a11y, export, the offline Figma API spec, and more).
+- Two connection modes: **Yolo** (direct, recommended) and **Safe** (plugin-based, no patching). Claude picks the right one during setup.
 
-```bash
-# Modal close button — 16px from top-right of its parent
-figma-cli pin top-right --offset-x 16 --offset-y 16 --node 5:42
-
-# Bottom-of-screen toast — stretched across parent, 24px from bottom
-figma-cli pin stretch-x --start 16 --end 16 --node 5:43
-figma-cli pin bottom --offset 24 --node 5:43
-
-# Center horizontally, scale to 25% / 25% margins
-figma-cli pin scale-x --start "25%" --end "25%" --node 5:44
-```
-
-Edges: `left`, `right`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `center-x`, `center-y`, `stretch-x`, `stretch-y`, `scale-x`, `scale-y`.
-
-**Or use edge-relative attributes when rendering new elements:**
-
-```jsx
-figma-cli render '<Frame name="Modal" w={400} h={300} bg="#fff">
-  <Frame name="CloseBtn" position="absolute" top={12} right={12} w={24} h={24} />
-  <Frame name="Overlay" position="absolute" top={0} bottom={0} left={0} right={0} bg="#0008" />
-</Frame>'
-```
-
-`top` / `right` / `bottom` / `left` work like CSS. Opposite edges together = STRETCH. Percentage strings (`"25%"`) = SCALE. `centerOffsetX` / `centerOffsetY` = CENTER with offset.
-
-**Read it back, get spec-canonical JSON:**
-
-```bash
-figma-cli inspect 5:42 --json
-# {
-#   "id": "5:42", "name": "CloseBtn", "type": "FRAME",
-#   "absolutePositioning": {
-#     "position": "ABSOLUTE",
-#     "top": 12, "right": 16, "width": 24, "height": 24,
-#     "bottom": null, "start": null, "end": null,
-#     "centerHorizontalOffset": null, "centerVerticalOffset": null
-#   }
-# }
-```
-
----
-
-## Two connection modes
-
-Both modes have full feature parity. Pick based on permissions.
-
-| Mode | Command | Use when |
-|---|---|---|
-| **Yolo** | `figma-cli connect` | Personal Mac, fastest path. Patches Figma once for direct CDP access. |
-| **Safe** | `figma-cli connect --safe` | Corporate laptop. No patching. Uses a small Figma plugin instead. |
-
-**Safe Mode setup (one-time):**
-1. `figma-cli connect --safe`
-2. In Figma: **Plugins → Development → Import plugin from manifest** → select `plugin/manifest.json`
-3. Each session: **Plugins → Development → FigCli** to start the plugin
-
----
-
-## What's in the API surface
-
-The full command reference lives in [REFERENCE.md](REFERENCE.md). Designers don't need to memorize it — your AI tool does the lookup.
-
-Categories:
-- **Tokens** — `tokens preset shadcn`, `tokens tailwind`, `tokens import`, `var create/list/delete-all`, `col list`
-- **Components** — `shadcn add`, `combos`, `sizes`, `node to-component`, `component prop`, `component combine`
-- **Render** — `render` (JSX), `render-batch` (multiple frames in one call), `blocks create`
-- **Visuals** — JSX props: `shadow`, `innerShadow`, `blur`, `bgBlur`, `bg="linear-gradient(...)"`, `image`, `imageScale`
-- **Organization** — `section create/list/add`, `grid set/list/clear`
-- **Docs & Handoff** — `dev link/list/unlink`, `annotate add/list/clear`
-- **A11y** — `a11y contrast`, `a11y audit`, `a11y touch`, `a11y vision`, `a11y text`
-- **Inspection** — `canvas info`, `node tree`, `find`, `verify`
-- **Export** — `export png`, `export svg`, `export jsx`
-- **API reference** — `api setup`, `api list`, `api <Name>`, `api gap`
+You don't need any of this to use the tool , it's here for tinkerers.
 
 ---
 
 ## Why this exists
 
-Figma plugins are slow to write, slow to ship, and tied to a single UI. AI tools want a structured API they can call programmatically.
+Figma plugins are slow to build and tied to one UI. AI assistants are great at *describing intent* but need a clean way to act on Figma. figma-ds-cli is the bridge: it talks to Figma Desktop directly, so you can design by conversation , locally, with no API key and no cloud roundtrip.
 
-figma-cli sits between them:
-- Talks to Figma Desktop directly (via CDP in Yolo, via plugin in Safe Mode)
-- Exposes a clean CLI that's easy for any AI tool to invoke
-- Ships with the full Figma Plugin API spec offline, so LLMs can self-discover
-- Stays out of your way — no API keys, no cloud roundtrip, no plugin store waits
-
-You design. The AI types. Figma updates.
+**You design. The AI builds. Figma updates.**
 
 ---
 
