@@ -34,7 +34,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "create a slot" | `figma-cli slot create "Name"` |
 | "list slots" | `figma-cli slot list` |
 | "reset slot" | `figma-cli slot reset` |
-| "verify creation" | `figma-cli verify` |
+| "verify creation" | `figma-cli verify` (or render with `--verify` for one roundtrip) |
+| "undo that" / "remove what you just made" | `figma-cli undo` |
 | "check contrast" | `figma-cli a11y contrast` |
 | "color blindness sim" | `figma-cli a11y vision` |
 | "check touch targets" | `figma-cli a11y touch` |
@@ -253,8 +254,11 @@ grow={1}                // fill remaining space
 stretch={true}          // fill cross-axis
 position="absolute" x={12} y={12}  // must have name for x/y
 
-// Text
+// Text — any installed font family, full weight scale, italic.
+// Weights: thin, extralight, light, regular, medium, semibold, bold, extrabold, black
+// Missing fonts/styles fall back to Inter automatically.
 <Text size={18} weight="bold" color="#000" font="Inter">Hello</Text>
+<Text size={24} font="Playfair Display" weight="light" italic={true}>Serif headline</Text>
 
 // Icons (real SVG via Iconify API)
 <Icon name="lucide:home" size={20} color="#fff" />
@@ -264,7 +268,7 @@ position="absolute" x={12} y={12}  // must have name for x/y
 <Slot name="Content" flex="col" gap={8} w="fill" />
 ```
 
-**Common mistakes (silently ignored, no error!):**
+**Common mistakes (the CLI now WARNS about unknown props and suggests the right name):**
 ```
 WRONG                    RIGHT
 layout="horizontal"   →  flex="row"
@@ -351,10 +355,16 @@ This applies to ALL text: titles, descriptions, labels, any multi-word text.
 </Frame>
 ```
 
-### 6. Push items to edges (navbar): use grow spacer
+### 6. Push items to edges (navbar)
 
 ```jsx
-// justify="between" doesn't work reliably
+// justify="between" maps to SPACE_BETWEEN (works on root and nested frames)
+<Frame flex="row" justify="between" items="center" w={800}>
+  <Frame>Logo</Frame>
+  <Frame>Buttons</Frame>
+</Frame>
+
+// Alternative for odd layouts: grow spacer
 <Frame flex="row" items="center">
   <Frame>Logo</Frame>
   <Frame grow={1} />

@@ -345,7 +345,11 @@ node src/index.js run /tmp/script.js
 
 **Native effects:** `noise="mono|duo|multi"` (grain), `texture={true}` (paper grain), `progressiveBlur={40}` (`progressiveBlurDir=down|up|left|right`), `glass={true}` (liquid glass: `glassRefraction`/`glassDepth`/`glassRadius`/`glassDispersion`/`glassLight`/`glassLightAngle`). Wallpapers: `gradient mesh "<colors>" --grain|--texture`.
 
-**Text:** `<Text size={18} weight="bold" color="#000" font="Inter">Hello</Text>`
+**Text:** `<Text size={18} weight="bold" color="#000" font="Inter">Hello</Text>` — any font family via `font=`, weights thin..black, `italic={true}`; missing fonts fall back to Inter.
+
+**Undo:** `figma-cli undo` removes the node(s) created by the last render / render-batch.
+
+**Verify in one call:** `figma-cli render '<Frame>...' --verify` (also on render-batch) returns a screenshot JSON of the result.
 
 **WRONG vs RIGHT:**
 ```

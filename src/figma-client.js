@@ -318,8 +318,9 @@ export class FigmaClient {
     // renders real Iconify SVGs, falling back to placeholders offline)
     const iconSvgMap = await this.prefetchIconSvgs(parsed.flatMap(p => p.children));
 
-    // Collect all fonts needed
-    const allFonts = new Set();
+    // Collect all fonts needed ({ family, style } pairs, deduped)
+    const allFontMap = new Map();
+    const allFonts = [];
     let anyUsesVars = false;
 
     parsed.forEach(({ props, children }) => {
@@ -329,28 +330,15 @@ export class FigmaClient {
       if (stroke && this.isVarRef(stroke)) anyUsesVars = true;
 
       const collected = this.collectFontsAndVarUsage(children);
-      collected.fonts.forEach(f => allFonts.add(f));
+      collected.fonts.forEach(f => {
+        const key = f.family + '/' + f.style;
+        if (!allFontMap.has(key)) { allFontMap.set(key, f); allFonts.push(f); }
+      });
       if (collected.usesVars) anyUsesVars = true;
     });
 
     // Font caching: only load fonts not yet loaded in this session
-    const fontStyles = Array.from(allFonts);
-    const fontLoads = fontStyles.length > 0
-      ? `
-        if (!globalThis.__loadedFonts) globalThis.__loadedFonts = new Set();
-        const fontsToLoad = ${JSON.stringify(fontStyles)}.filter(s => !globalThis.__loadedFonts.has(s));
-        if (fontsToLoad.length > 0) {
-          await Promise.all(fontsToLoad.map(s => figma.loadFontAsync({family:'Inter',style:s})));
-          fontsToLoad.forEach(s => globalThis.__loadedFonts.add(s));
-        }
-      `
-      : `
-        if (!globalThis.__loadedFonts) globalThis.__loadedFonts = new Set();
-        if (!globalThis.__loadedFonts.has('Regular')) {
-          await figma.loadFontAsync({family:'Inter',style:'Regular'});
-          globalThis.__loadedFonts.add('Regular');
-        }
-      `;
+    const fontLoads = this.generateFontLoadCode(allFonts);
 
     // Variable caching: reuse loaded vars across calls.
     // Loads ALL local variables in a single batched call (Figma's
@@ -494,8 +482,9 @@ export class FigmaClient {
       const clip = props.clip === 'true' || props.clip === true;
 
       const alignMap = { start: 'MIN', center: 'CENTER', end: 'MAX', stretch: 'STRETCH' };
+      const justifyMap = { start: 'MIN', center: 'CENTER', end: 'MAX', between: 'SPACE_BETWEEN' };
       const alignVal = alignMap[align] || 'MIN';
-      const justifyVal = alignMap[justify] || 'MIN';
+      const justifyVal = justifyMap[justify] || alignMap[justify] || 'MIN';
 
       const fillCode = this.generateFillCode(bg, `f${frameIdx}`);
       const strokeCode = stroke ? this.generateStrokeCode(stroke, `f${frameIdx}`, props.strokeWidth || 1, props.strokeAlign || null) : { code: '' };
@@ -679,6 +668,93 @@ export class FigmaClient {
     });
     await Promise.all(fetches);
     return svgMap;
+  }
+
+  /**
+   * Validate JSX prop names against the known vocabulary and return warnings
+   * for unknown ones, with a suggestion where possible. Pure function, no
+   * Figma connection needed — callers print the warnings before rendering.
+   * Returns [{ tag, prop, suggestion|null }].
+   */
+  validateJsxProps(jsx) {
+    const layout = ['name', 'flex', 'gap', 'rowGap', 'wrapGap', 'counterAxisSpacing', 'wrap',
+      'p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'padding',
+      'justify', 'items', 'align', 'grow', 'stretch', 'hug',
+      'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
+      'position', 'x', 'y', 'top', 'right', 'bottom', 'left', 'centerOffsetX', 'centerOffsetY'];
+    const paint = ['bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign', 'opacity', 'blendMode',
+      'image', 'imageScale', 'visible', 'locked', 'clip', 'overflow', 'rotate'];
+    const corners = ['rounded', 'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing'];
+    const effects = ['shadow', 'innerShadow', 'blur', 'bgBlur',
+      'noise', 'noiseDensity', 'noiseSize', 'noiseColor', 'noiseColor2', 'noiseOpacity',
+      'texture', 'textureSize', 'textureRadius', 'textureClip',
+      'progressiveBlur', 'progressiveBlurDir', 'progressiveBlurStart',
+      'glass', 'glassRefraction', 'glassDepth', 'glassRadius', 'glassDispersion', 'glassLight', 'glassLightAngle'];
+
+    const known = {
+      Frame: [...layout, ...paint, ...corners, ...effects],
+      Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
+        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing'],
+      Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
+      Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Rectangle: null, // alias of Rect, filled below
+      Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
+      Instance: ['name', 'component', 'id', 'w', 'h', 'width', 'height'],
+    };
+    known.Rectangle = known.Rect;
+
+    // Common wrong names -> the prop that actually works
+    const aliases = {
+      layout: 'flex', direction: 'flex', flexDirection: 'flex',
+      cornerRadius: 'rounded', borderRadius: 'rounded',
+      background: 'bg', backgroundColor: 'bg',
+      border: 'stroke', borderColor: 'stroke', borderWidth: 'strokeWidth',
+      fontSize: 'size', fontWeight: 'weight', fontFamily: 'font', textAlign: 'align',
+      spacing: 'gap', itemSpacing: 'gap',
+      alignItems: 'items', justifyContent: 'justify',
+      visibility: 'visible',
+    };
+
+    const levenshtein = (a, b) => {
+      const m = a.length, n = b.length;
+      const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+      for (let j = 0; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          d[i][j] = Math.min(
+            d[i - 1][j] + 1, d[i][j - 1] + 1,
+            d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+          );
+        }
+      }
+      return d[m][n];
+    };
+
+    const warnings = [];
+    const tagRegex = /<(Frame|Text|Icon|Rect|Rectangle|Image|Slot|Instance)([^>]*?)\/?>/g;
+    let m;
+    while ((m = tagRegex.exec(jsx)) !== null) {
+      const tag = m[1];
+      const valid = known[tag];
+      if (!valid) continue;
+      const props = this.parseProps(m[2] || '');
+      for (const prop of Object.keys(props)) {
+        if (valid.includes(prop)) continue;
+        let suggestion = aliases[prop] || null;
+        if (!suggestion) {
+          // Typo detection: closest known prop within edit distance 2
+          let best = null, bestDist = 3;
+          for (const k of valid) {
+            const dist = levenshtein(prop.toLowerCase(), k.toLowerCase());
+            if (dist < bestDist) { best = k; bestDist = dist; }
+          }
+          suggestion = best;
+        }
+        warnings.push({ tag, prop, suggestion });
+      }
+    }
+    return warnings;
   }
 
   parseProps(propsStr) {
@@ -870,16 +946,38 @@ export class FigmaClient {
    * both load the same fonts and detect vars in the same places (including
    * icon colors and slot children, which the old batch collector missed).
    */
+  /**
+   * Map a JSX weight (+ italic flag) to a Figma font style name.
+   * Full scale: thin..black, with italic variants ("Bold Italic").
+   */
+  weightToStyle(weight, italic) {
+    const map = {
+      thin: 'Thin', hairline: 'Thin',
+      extralight: 'Extra Light', ultralight: 'Extra Light',
+      light: 'Light',
+      regular: 'Regular', normal: 'Regular',
+      medium: 'Medium',
+      semibold: 'Semi Bold', demibold: 'Semi Bold',
+      bold: 'Bold',
+      extrabold: 'Extra Bold', ultrabold: 'Extra Bold',
+      black: 'Black', heavy: 'Black',
+    };
+    const base = map[String(weight || 'regular').toLowerCase()] || 'Regular';
+    const isItalic = italic === true || italic === 'true';
+    if (isItalic) return base === 'Regular' ? 'Italic' : base + ' Italic';
+    return base;
+  }
+
   collectFontsAndVarUsage(items) {
-    const fonts = new Set();
+    const fontMap = new Map(); // 'family/style' -> { family, style }
     let usesVars = false;
     const check = (v) => { if (this.isVarRef(v)) usesVars = true; };
     const walk = (list) => {
       list.forEach(item => {
         if (item._type === 'text') {
-          const weight = item.weight || 'regular';
-          const style = weight === 'bold' ? 'Bold' : weight === 'medium' ? 'Medium' : weight === 'semibold' ? 'Semi Bold' : 'Regular';
-          fonts.add(style);
+          const family = item.font || 'Inter';
+          const style = this.weightToStyle(item.weight, item.italic);
+          fontMap.set(family + '/' + style, { family, style });
           check(item.color || '#000000');
         } else if (item._type === 'frame' || item._type === 'slot') {
           check(item.bg || item.fill || null);
@@ -891,7 +989,42 @@ export class FigmaClient {
       });
     };
     walk(items);
-    return { fonts, usesVars };
+    return { fonts: [...fontMap.values()], usesVars };
+  }
+
+  /**
+   * Generate the font-loading preamble for render code. Loads every needed
+   * (family, style) pair with a session cache, falling back to Inter when a
+   * font is missing. Also defines __font(family, style), which the text
+   * code-gen uses so fontName always points at a successfully loaded font.
+   */
+  generateFontLoadCode(fontList) {
+    const fonts = fontList && fontList.length ? fontList : [{ family: 'Inter', style: 'Regular' }];
+    return `
+        if (!globalThis.__loadedFonts) globalThis.__loadedFonts = new Set();
+        for (const f of ${JSON.stringify(fonts)}) {
+          const key = f.family + '/' + f.style;
+          if (globalThis.__loadedFonts.has(key)) continue;
+          try {
+            await figma.loadFontAsync({ family: f.family, style: f.style });
+            globalThis.__loadedFonts.add(key);
+          } catch (e) {
+            try {
+              await figma.loadFontAsync({ family: 'Inter', style: f.style });
+              globalThis.__loadedFonts.add('Inter/' + f.style);
+            } catch (e2) {
+              await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+              globalThis.__loadedFonts.add('Inter/Regular');
+            }
+          }
+        }
+        const __font = (family, style) => {
+          const lf = globalThis.__loadedFonts;
+          if (lf.has(family + '/' + style)) return { family, style };
+          if (lf.has('Inter/' + style)) return { family: 'Inter', style };
+          return { family: 'Inter', style: 'Regular' };
+        };
+    `;
   }
 
   /**
@@ -905,8 +1038,8 @@ export class FigmaClient {
       return items.map(item => {
         const idx = ctx.prefix + (ctx.counter.value++);
         if (item._type === 'text') {
-          const weight = item.weight || 'regular';
-          const style = weight === 'bold' ? 'Bold' : weight === 'medium' ? 'Medium' : weight === 'semibold' ? 'Semi Bold' : 'Regular';
+          const family = item.font || 'Inter';
+          const style = this.weightToStyle(item.weight, item.italic);
           const size = item.size || 14;
           const color = item.color || '#000000';
           const fillWidth = item.w === 'fill';
@@ -918,7 +1051,7 @@ export class FigmaClient {
           return `
         __currentNode = 'Text: ${item.content.substring(0, 30).replace(/'/g, "\\'")}';
         const el${idx} = figma.createText();
-        el${idx}.fontName = {family:'Inter',style:'${style}'};
+        el${idx}.fontName = __font(${JSON.stringify(family)}, ${JSON.stringify(style)});
         el${idx}.fontSize = ${size};
         el${idx}.characters = ${JSON.stringify(item.content)};
         ${textFillCode.code}
@@ -998,8 +1131,9 @@ export class FigmaClient {
 
           // Map align/justify to Figma values
           const alignMap = { start: 'MIN', center: 'CENTER', end: 'MAX', stretch: 'STRETCH' };
+          const justifyMap = { start: 'MIN', center: 'CENTER', end: 'MAX', between: 'SPACE_BETWEEN' };
           const fAlignVal = alignMap[fAlign] || 'CENTER';
-          const fJustifyVal = alignMap[fJustify] || 'CENTER';
+          const fJustifyVal = justifyMap[fJustify] || alignMap[fJustify] || 'CENTER';
 
           const nestedChildren = item._children ? this.generateChildrenCode(item._children, `el${idx}`, fFlex, ctx) : '';
           const frameFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
@@ -1319,18 +1453,15 @@ export class FigmaClient {
 
     // Collect all fonts and check variable usage recursively
     const collected = this.collectFontsAndVarUsage(children);
-    const fonts = collected.fonts;
     if (collected.usesVars) usesVars = true;
-
-    // Font caching for single render
-    const fontStyles = Array.from(fonts);
 
     const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap });
 
     // Map align/justify to Figma values for root frame
     const alignMap = { start: 'MIN', center: 'CENTER', end: 'MAX', stretch: 'STRETCH' };
+    const justifyMap = { start: 'MIN', center: 'CENTER', end: 'MAX', between: 'SPACE_BETWEEN' };
     const alignVal = alignMap[align] || 'MIN';
-    const justifyVal = alignMap[justify] || 'MIN';
+    const justifyVal = justifyMap[justify] || alignMap[justify] || 'MIN';
 
     // Smart positioning code
     const smartPosCode = useSmartPos ? `
@@ -1426,23 +1557,8 @@ export class FigmaClient {
         };
     ` : '';
 
-    // Font loading with caching
-    const fontLoadCode = fontStyles.length > 0
-      ? `
-        if (!globalThis.__loadedFonts) globalThis.__loadedFonts = new Set();
-        const fontsToLoad = ${JSON.stringify(fontStyles)}.filter(s => !globalThis.__loadedFonts.has(s));
-        if (fontsToLoad.length > 0) {
-          await Promise.all(fontsToLoad.map(s => figma.loadFontAsync({family:'Inter',style:s})));
-          fontsToLoad.forEach(s => globalThis.__loadedFonts.add(s));
-        }
-      `
-      : `
-        if (!globalThis.__loadedFonts) globalThis.__loadedFonts = new Set();
-        if (!globalThis.__loadedFonts.has('Regular')) {
-          await figma.loadFontAsync({family:'Inter',style:'Regular'});
-          globalThis.__loadedFonts.add('Regular');
-        }
-      `;
+    // Font loading with caching (shared emitter, includes __font helper)
+    const fontLoadCode = this.generateFontLoadCode(collected.fonts);
 
     return `
       (async function() {
@@ -1484,7 +1600,14 @@ export class FigmaClient {
 
         ${childCode}
 
-        return { id: frame.id, name: frame.name };
+        // Surface unresolved var: references like the batch path does, so a
+        // themed render that fell back to grey is visible to the caller.
+        const __unresolved = globalThis.__unresolvedVars
+          ? [...globalThis.__unresolvedVars].sort() : [];
+        if (globalThis.__unresolvedVars) globalThis.__unresolvedVars = new Set();
+        return __unresolved.length > 0
+          ? { id: frame.id, name: frame.name, unresolved: __unresolved }
+          : { id: frame.id, name: frame.name };
         } catch(e) {
           frame.remove();
           throw new Error('[Node: ' + __currentNode + '] ' + e.message);
