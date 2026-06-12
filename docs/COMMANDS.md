@@ -138,6 +138,58 @@ Re-import the output at any time:
 figma-cli import DESIGN.md
 ```
 
+## Import (all sources)
+
+`figma-cli import <source>` accepts DESIGN.md files, Tailwind configs, CSS
+custom-property files, W3C design-tokens JSON and Storybook (URL or static build).
+
+```bash
+# DESIGN.md — original extraction format (all three sub-formats)
+figma-cli import DESIGN.md
+figma-cli import DESIGN.md -c "my-brand"
+
+# Tailwind config — colors, radii, spacing, font families
+figma-cli import tailwind.config.js
+figma-cli import tailwind.config.cjs -c "tw-tokens"
+
+# CSS custom properties — @layer base, @theme, shadcn HSL triples, oklch
+figma-cli import src/globals.css
+figma-cli import styles.css -c "css-vars"
+
+# W3C design-tokens JSON (Style Dictionary, Tokens Studio)
+figma-cli import tokens.json
+figma-cli import design-tokens.json -c "brand"
+
+# Storybook — component context only (no tokens created)
+figma-cli import http://localhost:6006
+figma-cli import ./storybook-static/
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-c, --collection <name>` | Variable collection name |
+| `--save <file>` | Write the converted DESIGN.md to a path |
+| `--type <type>` | Override source-type detection (tailwind, css, tokens, storybook, designmd) |
+| `--print-context` | Print figmachat context summary without creating variables |
+
+### Storybook behavior
+
+Storybook's `index.json` carries component names and story variants, not design
+tokens. The import:
+
+1. Saves a `DESIGN-storybook.md` in the current directory (or `--save` path).
+2. Prints the component list with variant counts.
+3. Does NOT create Figma variables.
+
+Combine with a CSS or Tailwind import to get both tokens and component context:
+
+```bash
+figma-cli import http://localhost:6006
+figma-cli import tailwind.config.js
+```
+
 ## Variables
 
 ```bash

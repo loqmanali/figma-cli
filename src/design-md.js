@@ -290,7 +290,12 @@ export function summarizeForLLM({ tokens, meta }) {
   if (radii.length) lines.push(`Radius tokens (${radii.length}): ${radii.join(', ')}`);
   if (shadows.length) lines.push(`Shadow tokens (${shadows.length}): use sparingly — they're long compositions`);
   if (meta.components?.length) {
-    lines.push(`Existing component pages: ${meta.components.slice(0, 50).join(', ')}`);
+    // Normalize: components may be strings (from parseDesignMd) or objects
+    // {name, variants, category} (from storybook parser). Map to display strings.
+    const compNames = meta.components.slice(0, 50).map(c =>
+      typeof c === 'string' ? c : `${c.name} (${c.variants?.length ?? 0} variants)`
+    );
+    lines.push(`Existing component pages: ${compNames.join(', ')}`);
   }
   lines.push('');
   lines.push(`HARD RULES while this design system is loaded:`);

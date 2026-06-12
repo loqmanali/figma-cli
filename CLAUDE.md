@@ -27,6 +27,10 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "export only the tokens" | `figma-cli extract --sections tokens` |
 | "extract/document the X page" | `figma-cli extract --pages "X"` |
 | "extract what I selected" | `figma-cli extract --selection` |
+| "import my tailwind colors" | `figma-cli import tailwind.config.js` |
+| "import our css variables" | `figma-cli import src/globals.css` |
+| "import design tokens json" | `figma-cli import tokens.json` |
+| "load our storybook" | `figma-cli import http://localhost:6006` |
 
 **Wallpaper palette tip:** for rich results pass **5-6 hue-diverse colors** (mix warm + cool + a bright accent), not shades of one color. Analogous palettes blend into a flat 2-tone wash. The command auto-adds a depth anchor + focal glow, and `--style auto` rotates compositions (scatter/diagonal/bands/drift/spotlight/corners). For N wallpapers, run it N times with different palettes + styles. Add `--grain` for subtle film-grain NOISE or `--texture` for paper grain over the wallpaper.
 
@@ -196,6 +200,27 @@ figma-cli var delete-all -c "primitives"  # Only specific collection
 - After extraction, summarize what was captured (pages, token counts, skipped
   pages). Don't dump the file contents into chat.
 - Re-import with `figma-cli import <file>`.
+
+## Code Import Sources
+
+`figma-cli import` accepts more than DESIGN.md. Every source converts to a
+DESIGN.md internally and then runs through the same variable-creation pipeline:
+
+| Source | What it yields | Example |
+|--------|---------------|---------|
+| `tailwind.config.js` / `.cjs` / `.ts` | Colors, radii, spacing, font families | `figma-cli import tailwind.config.js` |
+| CSS file (globals.css, styles.css) | Custom properties — shadcn HSL triples, `@theme` blocks, oklch | `figma-cli import src/globals.css` |
+| tokens.json (W3C / Style Dictionary) | All token types with alias resolution | `figma-cli import tokens.json` |
+| Storybook URL or static build dir | Component names + variants ONLY (no tokens) | `figma-cli import http://localhost:6006` |
+
+**Storybook note:** Storybook index.json carries component structure, not design
+tokens. The import saves a `DESIGN-storybook.md` and prints component context but
+does NOT create Figma variables. Combine with a CSS or Tailwind import for tokens.
+
+**Options:**
+- `--save <file>` — write the converted DESIGN.md to a path instead of a temp file
+- `--type <type>` — override detection: `tailwind | css | tokens | storybook | designmd`
+- `-c, --collection <name>` — variable collection name (passed to import-design-md)
 
 ---
 

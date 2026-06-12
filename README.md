@@ -122,6 +122,15 @@ Have a brand or a design system? Put it in a single `DESIGN.md` file (colors, ty
 
 It creates real Figma variables (`primary`, `canvas`, `ink`, `accent`, …) you can use everywhere , and you can switch a design between systems on demand ("now make it look like Vercel"). Ready-made `DESIGN.md` files for popular brands work too.
 
+DESIGN.md is no longer the only way in. You can point `figma-cli import` directly at the source files your project already has:
+
+- **Tailwind config** (`tailwind.config.js`) , colors, radii, spacing and font families land as Figma variables.
+- **CSS custom properties** (`globals.css`, `styles.css`) , supports shadcn HSL triples, Tailwind v4 `@theme` blocks and oklch.
+- **Design-tokens JSON** (`tokens.json`) , W3C design-tokens format and Style Dictionary files, including alias resolution.
+- **Storybook** (`http://localhost:6006` or `./storybook-static/`) , imports your component inventory (names, variants) as context for the AI. Combine with a Tailwind or CSS import to get design tokens too.
+
+Ask Claude: "Import my tailwind config" or "load our storybook at localhost:6006" and it handles the rest.
+
 ---
 
 ## Export any Figma file as DESIGN.md

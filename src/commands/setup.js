@@ -2,10 +2,13 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { execSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, basename } from 'path';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma } from '../figma-patch.js';
+import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
   DAEMON_PORT,
@@ -27,49 +30,139 @@ program
   .description('CLI for managing Figma design systems')
   .version(pkg.version);
 
-// Top-level shortcut: `figma-cli import <file>` — auto-detects what the file
-// is and routes to the right importer. Today: DESIGN.md (figma extraction
-// format) is the only recognized type, but the dispatcher leaves room for
-// other formats (tokens.json, .figmavars, etc.) without breaking the UX.
+// Top-level shortcut: `figma-cli import <source>` — auto-detects the source
+// type and routes to the right importer.
+// Supported: DESIGN.md (Figma extraction format), Tailwind config, CSS custom
+// properties, W3C design-tokens JSON, Storybook (URL or static build).
 program
-  .command('import <file>')
-  .description('Auto-import a design file. Currently supports DESIGN.md (Figma extraction format).')
-  .option('-c, --collection <name>', 'Collection name (DESIGN.md only)')
+  .command('import <source>')
+  .description(
+    'Import a design source into Figma variables.\n' +
+    '  Supports: DESIGN.md, tailwind.config.js, CSS variables, design-tokens JSON, Storybook URL/build.'
+  )
+  .option('-c, --collection <name>', 'Variable collection name')
   .option('--print-context', 'Print figmachat context summary without creating variables')
-  .action(async (file, options) => {
-    const fs = await import('fs');
-    if (!fs.existsSync(file)) {
-      console.error(chalk.red('✗'), `not found: ${file}`);
+  .option('--save <file>', 'Write the converted DESIGN.md to this path instead of a temp file')
+  .option('--type <type>', 'Override source-type detection (tailwind|css|tokens|storybook|designmd)')
+  .action(async (source, options) => {
+    const isUrl = /^https?:\/\//.test(source);
+
+    // For URLs and directories we skip the readFileSync path entirely.
+    // For file paths, check existence first.
+    if (!isUrl) {
+      const { statSync } = await import('fs');
+      let isDir = false;
+      try { isDir = statSync(source).isDirectory(); } catch { /* file or missing */ }
+      if (!isDir && !existsSync(source)) {
+        console.error(chalk.red('✗'), `not found: ${source}`);
+        process.exit(1);
+      }
+
+      if (!isDir) {
+        // Read content for DESIGN.md sniffing and type detection.
+        const content = readFileSync(source, 'utf-8');
+
+        // Check if it's one of the three DESIGN.md formats (existing path).
+        const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
+        const hasJsonBlock = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
+        const proseColorRows = (content.match(/\*\*[^*]+\*\*\s*\(`#[0-9a-fA-F]{3,8}`\)\s*:/g) || []).length;
+        const isDesignMd = hasFrontmatterTokens || hasJsonBlock || proseColorRows >= 3;
+
+        if (isDesignMd && !options.type) {
+          // Existing DESIGN.md path — forward unchanged.
+          const args = ['tokens', 'import-design-md', source];
+          if (options.collection) args.push('-c', options.collection);
+          if (options.printContext) args.push('--print-context');
+          await program.parseAsync(args, { from: 'user' });
+          return;
+        }
+
+        // If no explicit type, detect from filename + content sample.
+        if (!options.type) {
+          const detectedType = detectSourceType(source, content.slice(0, 2048));
+          if (!detectedType || detectedType === 'designmd') {
+            console.error(chalk.red('✗'), `Unrecognized format: ${source}`);
+            _printSupportedFormats();
+            process.exit(1);
+          }
+          options.type = detectedType;
+        }
+      }
+    }
+
+    // Code-import branch: convert → write DESIGN.md → import variables.
+    let result;
+    try {
+      result = await convert(source, { type: options.type });
+    } catch (err) {
+      console.error(chalk.red('✗'), `Import failed: ${err.message}`);
       process.exit(1);
     }
-    // Sniff the file. We don't trust the extension alone — a `.md` that
-    // doesn't have the machine-readable token block isn't a design system.
-    // The block usually sits at the END of the file, so read the whole thing
-    // (these files are typically a few hundred KB max — cheap).
-    const content = fs.readFileSync(file, 'utf-8');
-    // Format A: YAML frontmatter with `colors:` / `typography:` (Stitch / getdesign.md style)
-    const hasFrontmatterTokens = /^---\s*\n[\s\S]*?(^colors:|^color:|^typography:)/m.test(content);
-    // Format B: our DESIGN.md extraction with `## Machine-readable tokens` JSON block
-    const hasJsonBlock = /```json\s+design-tokens/.test(content) || /^##\s+\d+\.\s+Machine-readable tokens/m.test(content);
-    // Format C: prose design system — role-labelled `**Name** (`#hex`): role` rows
-    const proseColorRows = (content.match(/\*\*[^*]+\*\*\s*\(`#[0-9a-fA-F]{3,8}`\)\s*:/g) || []).length;
-    const hasProseTokens = proseColorRows >= 3;
-    const isDesignMd = hasFrontmatterTokens || hasJsonBlock || hasProseTokens;
-    if (isDesignMd) {
-      // Forward to the existing implementation via Commander's own machinery.
-      const args = ['tokens', 'import-design-md', file];
+
+    const { tokens, meta, designMd } = result;
+    const hasTokens = Object.keys(tokens.color || {}).length > 0 ||
+                      Object.keys(tokens.typography || {}).length > 0 ||
+                      Object.keys(tokens.radius || {}).length > 0;
+    const hasComponents = meta.components?.length > 0;
+
+    // Write DESIGN.md — to the --save path or a temp file.
+    let designMdPath;
+    if (options.save) {
+      designMdPath = options.save;
+      writeFileSync(designMdPath, designMd, 'utf-8');
+      console.log(chalk.green('✓'), `DESIGN.md saved to ${designMdPath}`);
+    } else if (!hasTokens) {
+      // Storybook (zero-token): default to ./DESIGN-storybook.md
+      designMdPath = join(process.cwd(), 'DESIGN-storybook.md');
+      writeFileSync(designMdPath, designMd, 'utf-8');
+      console.log(chalk.green('✓'), `Component context saved to ${designMdPath}`);
+    } else {
+      // Tokens present: use a temp file (not permanent unless --save given)
+      designMdPath = join(tmpdir(), `figma-cli-import-${Date.now()}.md`);
+      writeFileSync(designMdPath, designMd, 'utf-8');
+    }
+
+    if (hasTokens) {
+      // Forward to the existing import-design-md pipeline.
+      const args = ['tokens', 'import-design-md', designMdPath];
       if (options.collection) args.push('-c', options.collection);
       if (options.printContext) args.push('--print-context');
       await program.parseAsync(args, { from: 'user' });
-      return;
+    } else if (hasComponents) {
+      // Storybook: print component context, skip variable creation.
+      const comps = meta.components;
+      console.log(chalk.cyan('\nStorybook component context loaded:'));
+      console.log(chalk.white(`  ${comps.length} component${comps.length !== 1 ? 's' : ''}:`));
+      const preview = comps.slice(0, 10);
+      for (const c of preview) {
+        const varCount = c.variants?.length ?? 0;
+        const varLabel = varCount > 0 ? chalk.gray(` (${varCount} variants: ${c.variants.slice(0, 3).join(', ')}${varCount > 3 ? ', …' : ''})`) : '';
+        console.log(`    ${chalk.white(c.name)}${varLabel}`);
+      }
+      if (comps.length > 10) {
+        console.log(chalk.gray(`    … and ${comps.length - 10} more`));
+      }
+      console.log(
+        chalk.yellow('\nStorybook gives component context, not design tokens.') +
+        chalk.gray(' Combine with:')
+      );
+      console.log(chalk.cyan('  figma-cli import tailwind.config.js'));
+      console.log(chalk.cyan('  figma-cli import src/globals.css'));
+      console.log(chalk.cyan('  figma-cli import tokens.json'));
+    } else {
+      console.log(chalk.yellow('⚠'), 'No tokens or components found in source.');
     }
-    console.error(chalk.red('✗'), `Unrecognized format: ${file}`);
-    console.error(chalk.yellow('  Currently `figma-cli import` understands:'));
-    console.error('    • DESIGN.md (must contain "## Machine-readable tokens" + `json design-tokens` block)');
-    console.error(chalk.gray('  For other formats use the dedicated importers:'));
-    console.error(chalk.gray('    figma-cli tokens import <file.json>   (raw JSON tokens)'));
-    process.exit(1);
   });
+
+function _printSupportedFormats() {
+  console.error(chalk.yellow('  Supported sources for `figma-cli import`:'));
+  console.error('    • DESIGN.md       (## Machine-readable tokens block, YAML frontmatter, or prose rows)');
+  console.error('    • tailwind.config.js / .cjs / .ts   (Tailwind color/radius/spacing/font config)');
+  console.error('    • globals.css / styles.css           (CSS custom properties, @theme, shadcn HSL)');
+  console.error('    • tokens.json                        (W3C design-tokens / Style Dictionary)');
+  console.error('    • http://localhost:6006              (Storybook — running dev server)');
+  console.error('    • ./storybook-static/                (Storybook — static build directory)');
+}
 
 // Default action when no command is given
 program.action(async () => {

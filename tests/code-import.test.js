@@ -153,7 +153,19 @@ test('convert: every converter designMd output roundtrips through parseDesignMd'
 
 test('convert: storybook produces components in designMd and zero tokens', async () => {
   const result = await convert(join(FIX, 'storybook-index.json'), { type: 'storybook' });
-  assert.match(result.designMd, /### Button/);
+  assert.match(result.designMd, /### Page: Button/);
   assert.match(result.designMd, /Primary, Secondary/);
   assert.equal(Object.keys(result.tokens.color).length, 0);
+});
+
+test('convert: storybook components survive designMd file roundtrip', async () => {
+  const result = await convert(join(FIX, 'storybook-index.json'), { type: 'storybook' });
+  const dir = mkdtempSync(join(tmpdir(), 'code-import-storybook-'));
+  const f = join(dir, 'storybook-design.md');
+  writeFileSync(f, result.designMd);
+  const parsed = parseDesignMd(f);
+  assert.ok(
+    parsed.meta.components.includes('Button'),
+    `Expected 'Button' in parsed components: ${JSON.stringify(parsed.meta.components)}`
+  );
 });

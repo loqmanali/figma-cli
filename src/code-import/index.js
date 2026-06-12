@@ -127,7 +127,9 @@ function renderDesignMd(tokens, meta, type) {
     lines.push('## 2. Components');
     lines.push('');
     for (const comp of meta.components) {
-      lines.push(`### ${comp.name}`);
+      // Use "### Page: <name>" so parseDesignMd (Format B componentSections
+      // regex /^### Page:\s+(.+)$/gm) picks these up on re-parse.
+      lines.push(`### Page: ${comp.name}`);
       if (comp.variants?.length) {
         lines.push(`Variants: ${comp.variants.join(', ')}`);
       }
