@@ -144,6 +144,15 @@ pages scanned, nodes visited, counts per token type, output path(s).
    pages appear in Section 2 and ActionMenu's variant matrix matches the known
    properties (trigger/open/align).
 
+## Known deviation (v1, 2026-06-12)
+
+Named local paint/text styles do NOT take priority over raw values yet — v1
+names all tokens heuristically (`assignSemanticNames`, `buildTypeScale`).
+Verified live against Primer Web: the heuristic output is correct and
+roundtrips, but style names like `fg/default` are not preserved. Follow-up:
+resolve `fillStyleId`/`textStyleId` against `getLocalPaintStyles()` in the
+walker and prefer those names in the aggregator.
+
 ## Non-goals
 
 - No REST-API mode (works only against the open desktop file, like the rest of
