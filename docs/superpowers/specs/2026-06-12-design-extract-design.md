@@ -98,6 +98,26 @@ New file `src/commands/extract.js`, registered from `src/index.js` like the othe
 command modules. Core logic in `src/design-extract.js` (sibling to
 `src/design-md.js`).
 
+## Natural-language interface (CLAUDE.md)
+
+Users never type `figma-cli extract --sections …` themselves — they talk to
+Claude, and Claude maps intent to flags. The feature ships with CLAUDE.md /
+REFERENCE.md updates:
+
+Quick Reference additions:
+
+| User says | Command |
+|---|---|
+| "export the design system as markdown" / "create a DESIGN.md" | `figma-cli extract` |
+| "export only the tokens" | `figma-cli extract --sections tokens` |
+| "extract the Button page" / "document the ActionMenu page" | `figma-cli extract --pages "Button"` |
+| "extract what I selected" | `figma-cli extract --selection` |
+| "full export with every page tree" | `figma-cli extract --split` |
+
+Plus a short guidance block: default to a full extract when no scope is named;
+ask where to save only if the user mentions a destination; after extraction,
+summarize what was captured (pages, token counts) instead of dumping the file.
+
 ## Progress UX
 
 `ora` spinner with per-page progress: `Page 12/67: ActionList…`. Final summary:
