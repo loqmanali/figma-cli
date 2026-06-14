@@ -69,7 +69,11 @@ describe('component variety pools', () => {
     const four = getVariety('card', 4);
     assert.strictEqual(four.length, 4, 'must return exactly N items');
     assert.strictEqual(new Set(four.map(c => c.jsx)).size, 4, 'all 4 must be different layouts');
-    four.forEach(c => assert.strictEqual(c.name, 'Card', 'each is an independent Card frame'));
+    assert.strictEqual(new Set(four.map(c => c.name)).size, 4, 'each gets a distinct, descriptive name');
+    four.forEach(c => {
+      assert.ok(c.name.startsWith('Card '), `name "${c.name}" must be a descriptive Card name, not bare "Card"`);
+      assert.ok(c.jsx.includes(`name="${c.name}"`), 'JSX root frame name must match the descriptive name');
+    });
   });
 
   it('cycles through the pool when N exceeds its size', () => {
@@ -78,11 +82,15 @@ describe('component variety pools', () => {
     assert.ok(new Set(eight.map(c => c.jsx)).size >= 6, 'covers the whole pool before repeating');
   });
 
-  it('button --count N yields N DISTINCT styles', () => {
+  it('button --count N yields N DISTINCT styles with descriptive names', () => {
     const four = getVariety('button', 4);
     assert.strictEqual(four.length, 4, 'must return exactly N items');
     assert.strictEqual(new Set(four.map(b => b.jsx)).size, 4, 'all 4 must be different styles');
-    four.forEach(b => assert.strictEqual(b.name, 'Button', 'each is an independent Button frame'));
+    assert.strictEqual(new Set(four.map(b => b.name)).size, 4, 'each gets a distinct, descriptive name');
+    four.forEach(b => {
+      assert.ok(b.name.startsWith('Button ') && b.name !== 'Button', `name "${b.name}" must distinguish the style, not bare "Button"`);
+      assert.ok(b.jsx.includes(`name="${b.name}"`), 'JSX root frame name must match the descriptive name');
+    });
   });
 
   it('returns null for components without a variety pool', () => {

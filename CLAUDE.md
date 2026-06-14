@@ -83,9 +83,9 @@ When the user asks for components, two distinct universes exist:
 
 **`--count` semantics for `shadcn add`:**
 - `figma-cli shadcn add button` → renders all 9 button variants once (variant gallery)
-- `figma-cli shadcn add button --count 4` → 4 **different** buttons (default / secondary / outline / ghost / destructive / link styles), not 4×9=36 and not 4 identical primaries
-- `figma-cli shadcn add card --count 4` → 4 **different** cards
-- Components with a variety pool (`button`, `card`) return N DISTINCT designs on `--count` and cycle the pool if N exceeds its size — never N identical clones. Components without a pool fall back to N copies of the default (named after the base component, e.g. "Badge").
+- `figma-cli shadcn add button --count 4` → 4 **different** buttons named by style (Button Default / Button Secondary / Button Outline / Button Ghost / Button Destructive / Button Link), not 4×9=36 and not 4 identical primaries
+- `figma-cli shadcn add card --count 4` → 4 **different** cards named by type (Card Simple / Card Stat / Card Profile / Card Media / Card Notification / Card Pricing)
+- Components with a variety pool (`button`, `card`) return N DISTINCT designs on `--count`, each with its OWN descriptive name (space-separated, no " / " slash), cycling the pool if N exceeds its size — never N identical clones. Components without a pool fall back to N copies of the default (named after the base component, e.g. "Badge").
 
 **Don't use `rounded="var:md"` in JSX.** `rounded=` takes a number. Look up the radius token's px value via `figma-cli var list` (e.g. `rounded={8}`).
 
