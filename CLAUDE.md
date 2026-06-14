@@ -342,6 +342,12 @@ position="absolute" x={12} y={12}  // must have name for x/y
 <Icon name="lucide:home" size={20} color="#fff" />
 <Icon name="lucide:check" size={14} color="var:primary-foreground" />
 
+// Ellipse / Circle — rings, spinners, donut & pie via arc + innerRadius
+<Ellipse w={20} h={20} bg="var:primary" />                               // plain dot
+<Ellipse w={32} h={32} innerRadius={0.82} bg="var:muted" />             // ring (donut)
+<Ellipse w={32} h={32} arc={90} arcStart={-90} innerRadius={0.82} bg="var:primary" /> // spinner arc / pie slice
+// arc = sweep°, arcStart = start° (0 = 3 o'clock, clockwise), innerRadius = 0–1
+
 // Slots (inside components)
 <Slot name="Content" flex="col" gap={8} w="fill" />
 ```

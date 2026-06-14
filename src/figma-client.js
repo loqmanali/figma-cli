@@ -739,11 +739,15 @@ export class FigmaClient {
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
       Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
+      Ellipse: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign',
+        'arc', 'arcStart', 'innerRadius', 'opacity', 'x', 'y', 'position'],
+      Circle: null,    // alias of Ellipse, filled below
       Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
       Instance: ['name', 'component', 'id', 'w', 'h', 'width', 'height'],
     };
     known.Rectangle = known.Rect;
+    known.Circle = known.Ellipse;
 
     // Common wrong names -> the prop that actually works
     const aliases = {
@@ -773,7 +777,7 @@ export class FigmaClient {
     };
 
     const warnings = [];
-    const tagRegex = /<(Frame|Text|Icon|Rect|Rectangle|Image|Slot|Instance)([^>]*?)\/?>/g;
+    const tagRegex = /<(Frame|Text|Icon|Rect|Rectangle|Ellipse|Circle|Image|Slot|Instance)([^>]*?)\/?>/g;
     let m;
     while ((m = tagRegex.exec(jsx)) !== null) {
       const tag = m[1];
@@ -936,6 +940,20 @@ export class FigmaClient {
       }
     }
 
+    // Parse Ellipse / Circle elements (self-closing). Supports rings, spinners,
+    // donut/pie via arc (sweep°), arcStart (start°, 0=3 o'clock) and innerRadius.
+    const ellipseRegex = /<(?:Ellipse|Circle)(?:\s+([^/]*?))?\s*\/>/g;
+    while ((match = ellipseRegex.exec(childrenStr)) !== null) {
+      const idx = match.index;
+      const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
+      if (!insideFrame) {
+        const ellProps = this.parseProps(match[1] || '');
+        ellProps._type = 'ellipse';
+        ellProps._index = idx;
+        children.push(ellProps);
+      }
+    }
+
     // Parse Image elements (self-closing) - creates placeholder rectangle
     const imageRegex = /<Image\s+([^/]*)\s*\/>/g;
     while ((match = imageRegex.exec(childrenStr)) !== null) {
@@ -1025,6 +1043,9 @@ export class FigmaClient {
           if (item.stroke) check(item.stroke);
         } else if (item._type === 'rect' || item._type === 'image' || item._type === 'icon') {
           check(item.bg || item.fill || item.color || item.c || '#e4e4e7');
+        } else if (item._type === 'ellipse') {
+          check(item.bg || item.fill || null);
+          if (item.stroke) check(item.stroke);
         }
         if (item._children) walk(item._children);
       });
@@ -1358,6 +1379,33 @@ export class FigmaClient {
         el${idx}.resize(${rWidth}, ${rHeight});
         el${idx}.cornerRadius = ${rRounded};
         ${rectFillCode.code}
+        ${parentVar}.appendChild(el${idx});`;
+        } else if (item._type === 'ellipse') {
+          // Ellipse / Circle. arc (sweep degrees) + arcStart (start degrees,
+          // 0 = 3 o'clock, clockwise) + innerRadius (0–1) make rings, spinners,
+          // donut and pie slices. No arc/innerRadius = a plain filled ellipse.
+          const eW = item.w || item.width || 100;
+          const eH = item.h || item.height || eW;
+          const eName = item.name || 'Ellipse';
+          const eBg = item.bg || item.fill || null;
+          const eStroke = item.stroke || null;
+          const eStrokeWidth = item.strokeWidth || 1;
+          const eStrokeAlign = item.strokeAlign || null;
+          const inner = item.innerRadius !== undefined ? Math.max(0, Math.min(1, Number(item.innerRadius))) : 0;
+          const hasArc = item.arc !== undefined || item.arcStart !== undefined || inner > 0;
+          const startDeg = item.arcStart !== undefined ? Number(item.arcStart) : 0;
+          const sweepDeg = item.arc !== undefined ? Number(item.arc) : 360;
+          const startRad = startDeg * Math.PI / 180;
+          const endRad = (startDeg + sweepDeg) * Math.PI / 180;
+          const ellFillCode = eBg ? this.generateFillCode(eBg, `el${idx}`) : { code: '' };
+          const ellStrokeCode = eStroke ? this.generateStrokeCode(eStroke, `el${idx}`, eStrokeWidth, eStrokeAlign) : { code: '' };
+          return `
+        const el${idx} = figma.createEllipse();
+        el${idx}.name = ${JSON.stringify(eName)};
+        el${idx}.resize(${eW}, ${eH});
+        ${ellFillCode.code}
+        ${ellStrokeCode.code}
+        ${hasArc ? `try { el${idx}.arcData = { startingAngle: ${startRad}, endingAngle: ${endRad}, innerRadius: ${inner} }; } catch(e) {}` : ''}
         ${parentVar}.appendChild(el${idx});`;
         } else if (item._type === 'image') {
           // Image placeholder (gray rectangle with image icon concept)

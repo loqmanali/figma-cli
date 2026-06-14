@@ -166,8 +166,12 @@ function compareNode(specN, builtN, path, rules, tol) {
     });
   }
 
-  // children: enforce count, then recurse by index
-  const specKids = specN.children || [];
+  // children: only enforce structure UNDER an auto-layout node (one the md
+  // describes with a direction). Vector-drawn nodes (a Spinner's GROUP /
+  // BOOLEAN_OPERATION / ELLIPSE tree) carry no layout, so we treat them as
+  // opaque and check size only — a clean ellipse-arc rebuild shouldn't have to
+  // reproduce the designer's boolean tree.
+  const specKids = (specN.lm ? specN.children : null) || [];
   if (specKids.length) {
     const builtKids = builtN.children || [];
     const ok = builtKids.length === specKids.length;
