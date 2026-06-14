@@ -276,6 +276,17 @@ const components = {
 // stay bound to the same var: tokens so they theme correctly (and benefit from
 // the visible-default fallback when no variables are loaded).
 const variety = {
+  // Distinct button styles: default, secondary, outline, ghost, destructive, link.
+  // Asking for "4 buttons" gives a useful style set, not 4 identical primaries.
+  // All named just "Button" (independent frames), bound to var: tokens.
+  button: () => [
+    { name: 'Button', jsx: `<Frame name="Button" h={40} bg="var:primary" rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:primary-foreground">Button</Text></Frame>` },
+    { name: 'Button', jsx: `<Frame name="Button" h={40} bg="var:secondary" rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:secondary-foreground">Button</Text></Frame>` },
+    { name: 'Button', jsx: `<Frame name="Button" h={40} bg="var:background" stroke="var:input" strokeWidth={1} rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:foreground">Button</Text></Frame>` },
+    { name: 'Button', jsx: `<Frame name="Button" h={40} rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:foreground">Button</Text></Frame>` },
+    { name: 'Button', jsx: `<Frame name="Button" h={40} bg="var:destructive" rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:destructive-foreground">Button</Text></Frame>` },
+    { name: 'Button', jsx: `<Frame name="Button" h={40} rounded={6} flex="row" justify="center" items="center" gap={8} px={16} py={8}><Text size={14} weight="medium" color="var:primary">Button</Text></Frame>` },
+  ],
   // Distinct card archetypes: simple, stat, profile, media, notification, pricing.
   card: () => [
     { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame name="CardHeader" flex="col" gap={6} p={24} w="fill"><Text size={20} weight="semibold" color="var:card-foreground" w="fill">Card Title</Text><Text size={14} color="var:muted-foreground" w="fill">Card description goes here.</Text></Frame><Frame name="CardContent" flex="col" gap={8} px={24} pb={24} w="fill"><Text size={14} color="var:card-foreground" w="fill">Your content goes here. Add any components or text.</Text></Frame><Frame name="CardFooter" flex="row" items="center" gap={8} px={24} pb={24} w="fill" justify="start"><Frame bg="var:primary" px={16} py={8} rounded={6} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:primary-foreground">Save</Text></Frame><Frame bg="var:background" stroke="var:input" strokeWidth={1} px={16} py={8} rounded={6} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:foreground">Cancel</Text></Frame></Frame></Frame>` },

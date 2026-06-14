@@ -78,8 +78,15 @@ describe('component variety pools', () => {
     assert.ok(new Set(eight.map(c => c.jsx)).size >= 6, 'covers the whole pool before repeating');
   });
 
+  it('button --count N yields N DISTINCT styles', () => {
+    const four = getVariety('button', 4);
+    assert.strictEqual(four.length, 4, 'must return exactly N items');
+    assert.strictEqual(new Set(four.map(b => b.jsx)).size, 4, 'all 4 must be different styles');
+    four.forEach(b => assert.strictEqual(b.name, 'Button', 'each is an independent Button frame'));
+  });
+
   it('returns null for components without a variety pool', () => {
-    assert.strictEqual(getVariety('button', 3), null, 'buttons keep the clone-the-default behavior');
+    assert.strictEqual(getVariety('badge', 3), null, 'components without a pool clone the default');
   });
 });
 
