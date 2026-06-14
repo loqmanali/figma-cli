@@ -735,7 +735,7 @@ export class FigmaClient {
     const known = {
       Frame: [...layout, ...paint, ...corners, ...effects],
       Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
-        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing'],
+        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines'],
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
       Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
@@ -1086,6 +1086,23 @@ export class FigmaClient {
           const fillWidth = item.w === 'fill';
           const textFillCode = this.generateFillCode(color, `el${idx}`);
 
+          // Typography props that used to be in the known-prop list but were
+          // never applied (silent footguns): lineHeight, letterSpacing, align.
+          // Plus truncation (ellipsis / line-clamp), which Primer leans on.
+          // lineHeight/letterSpacing accept a number (px), a "NN%" string, or
+          // "auto" (lineHeight only). align maps to textAlignHorizontal.
+          const dimUnit = (v) => {
+            if (v === 'auto' || v === 'AUTO') return `{ unit: 'AUTO' }`;
+            if (typeof v === 'string' && v.trim().endsWith('%')) return `{ value: ${parseFloat(v)}, unit: 'PERCENT' }`;
+            return `{ value: ${Number(v)}, unit: 'PIXELS' }`;
+          };
+          const alignMapT = { left: 'LEFT', center: 'CENTER', right: 'RIGHT', justify: 'JUSTIFIED', start: 'LEFT', end: 'RIGHT' };
+          const tAlign = item.align ? alignMapT[String(item.align).toLowerCase()] : null;
+          const tLineHeight = item.lineHeight !== undefined ? dimUnit(item.lineHeight) : null;
+          const tLetterSpacing = item.letterSpacing !== undefined ? dimUnit(item.letterSpacing) : null;
+          const tTruncate = item.truncate === true || item.truncate === 'true';
+          const tMaxLines = item.maxLines !== undefined ? parseInt(item.maxLines) : null;
+
           // Auto-FILL text in column layouts so Safe Mode wraps text correctly.
           const isCol = parentFlex === 'col' || parentFlex === 'column';
           const autoFill = isCol && !fillWidth;
@@ -1094,6 +1111,9 @@ export class FigmaClient {
         const el${idx} = figma.createText();
         el${idx}.fontName = __font(${JSON.stringify(family)}, ${JSON.stringify(style)});
         el${idx}.fontSize = ${size};
+        ${tLineHeight ? `try { el${idx}.lineHeight = ${tLineHeight}; } catch(e) {}` : ''}
+        ${tLetterSpacing ? `try { el${idx}.letterSpacing = ${tLetterSpacing}; } catch(e) {}` : ''}
+        ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
         ${textFillCode.code}
         ${parentVar}.appendChild(el${idx});
@@ -1101,7 +1121,9 @@ export class FigmaClient {
         ${autoFill ? `// Auto-FILL: text in col layout needs FILL for Safe Mode wrapping
         if (${parentVar}.layoutMode === 'VERTICAL' && (${parentVar}.counterAxisSizingMode === 'FIXED' || ${parentVar}.primaryAxisSizingMode === 'FIXED')) {
           try { el${idx}.layoutSizingHorizontal = 'FILL'; el${idx}.textAutoResize = 'HEIGHT'; } catch(e) {}
-        }` : ''}`;
+        }` : ''}
+        ${tTruncate || tMaxLines !== null ? `try { el${idx}.textTruncation = 'ENDING'; } catch(e) {}` : ''}
+        ${tMaxLines !== null ? `try { el${idx}.maxLines = ${tMaxLines}; } catch(e) {}` : ''}`;
         } else if (item._type === 'frame') {
           // Nested frame (button, etc.)
           const fName = item.name || 'Nested Frame';
@@ -1161,8 +1183,18 @@ export class FigmaClient {
           const hugWidth = item.w === 'hug';
           const hugHeight = item.h === 'hug';
 
-          // HUG by default, FIXED only if explicit numeric size given
-          const isNumeric = v => v !== undefined && v !== 'fill' && v !== 'hug';
+          // Percentage sizing: w="60%" / h="50%" resolves to a FIXED px size =
+          // that fraction of the PARENT's resolved dimension at append time
+          // (auto-layout has no native %, so we compute it). Without this the
+          // "60%" string used to leak into resize() and produce broken JS.
+          const pctOf = v => (typeof v === 'string' && /^\d+(\.\d+)?%$/.test(v)) ? parseFloat(v) / 100 : null;
+          const pctW = pctOf(item.w) !== null ? pctOf(item.w) : pctOf(item.width);
+          const pctH = pctOf(item.h) !== null ? pctOf(item.h) : pctOf(item.height);
+
+          // HUG by default, FIXED only if explicit numeric size given.
+          // Percentages and the fill/hug keywords are NOT numeric — never let
+          // them reach resize() as raw strings.
+          const isNumeric = v => v !== undefined && v !== 'fill' && v !== 'hug' && pctOf(v) === null;
           const numericW = isNumeric(item.w) ? item.w : isNumeric(item.width) ? item.width : undefined;
           const numericH = isNumeric(item.h) ? item.h : isNumeric(item.height) ? item.height : undefined;
           const hasWidth = numericW !== undefined;
@@ -1201,10 +1233,11 @@ export class FigmaClient {
 
           // Determine sizing: FILL, FIXED, or HUG for each axis. An explicit
           // `hug` keyword forces HUG regardless of whether a number was given.
+          // A percentage forces FIXED (px resolved from the parent at runtime).
           const wantFillH = fillWidth || (fGrow !== null && parentFlex === 'row') || (isStretch && crossIsH) || autoFillH;
           const wantFillV = fillHeight || (fGrow !== null && parentFlex === 'col') || (isStretch && crossIsV) || autoFillV;
-          const hSizing = wantFillH ? 'FILL' : hugWidth ? 'HUG' : (hasWidth ? 'FIXED' : 'HUG');
-          const vSizing = wantFillV ? 'FILL' : hugHeight ? 'HUG' : (hasHeight ? 'FIXED' : 'HUG');
+          const hSizing = pctW !== null ? 'FIXED' : wantFillH ? 'FILL' : hugWidth ? 'HUG' : (hasWidth ? 'FIXED' : 'HUG');
+          const vSizing = pctH !== null ? 'FIXED' : wantFillV ? 'FILL' : hugHeight ? 'HUG' : (hasHeight ? 'FIXED' : 'HUG');
 
           // Initial resize: for an axis that will FILL, seed it at 1px (not the
           // 100px default) so the parent hugs to its REAL content before FILL is
@@ -1238,6 +1271,13 @@ export class FigmaClient {
         ${parentVar}.appendChild(el${idx});
         el${idx}.layoutSizingHorizontal = '${hSizing}';
         el${idx}.layoutSizingVertical = '${vSizing}';
+        ${pctW !== null || pctH !== null ? `try {
+          const _pp = el${idx}.parent;
+          if (_pp && 'width' in _pp) {
+            ${pctW !== null ? `el${idx}.resize(Math.max(1, Math.round(_pp.width * ${pctW})), el${idx}.height);` : ''}
+            ${pctH !== null ? `el${idx}.resize(el${idx}.width, Math.max(1, Math.round(_pp.height * ${pctH})));` : ''}
+          }
+        } catch (e) {}` : ''}
         ${nestedChildren}
         ${fWrap && fFlex === 'row' && fWrapGap > 0 ? `el${idx}.counterAxisSpacing = ${fWrapGap};` : ''}
         ${effectivePosition === 'absolute' ? `
