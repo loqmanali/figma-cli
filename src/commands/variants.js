@@ -2,7 +2,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { join } from 'path';
-import { listComponents, getComponent, getAllComponents, VISUAL_COMPONENTS } from '../shadcn.js';
+import { listComponents, getComponent, getAllComponents, getVariety, VISUAL_COMPONENTS } from '../shadcn.js';
 import {
   program,
   checkConnection,
@@ -627,18 +627,25 @@ shadcn
         //   `shadcn add button --count 4` → 4 copies of the DEFAULT variant (= comp[0])
         //                                   (the user asked for 4 buttons, not 4×9=36)
         if (userPassedCount) {
-          // The user asked for N "Button"s, not N "Button / Default"s — the
-          // " / Variant" suffix is a gallery-grouping convention that makes no
-          // sense for plain copies. Strip it from both the label and the JSX
-          // root-frame name (first name="..." is always the root frame).
-          const base = comp[0];
-          const cleanName = base.name.split(' / ')[0];
-          const cleanItem = {
-            ...base,
-            name: cleanName,
-            jsx: base.jsx.replace(/name="[^"]*"/, `name="${cleanName}"`),
-          };
-          for (let i = 0; i < count; i++) items.push(cleanItem);
+          // If this component has a variety pool, N copies means N DIFFERENT
+          // designs (e.g. 4 cards = 4 distinct layouts), not N clones.
+          const varietySet = getVariety(name, count);
+          if (varietySet) {
+            items.push(...varietySet);
+          } else {
+            // No variety pool: the user asked for N "Button"s, not N "Button /
+            // Default"s — the " / Variant" suffix is a gallery-grouping
+            // convention that makes no sense for plain copies. Strip it from the
+            // label and the JSX root-frame name (first name="..." is the root).
+            const base = comp[0];
+            const cleanName = base.name.split(' / ')[0];
+            const cleanItem = {
+              ...base,
+              name: cleanName,
+              jsx: base.jsx.replace(/name="[^"]*"/, `name="${cleanName}"`),
+            };
+            for (let i = 0; i < count; i++) items.push(cleanItem);
+          }
         } else {
           items.push(...comp);
         }

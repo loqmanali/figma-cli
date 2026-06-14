@@ -269,6 +269,24 @@ const components = {
   ],
 };
 
+// ── Variety pools ─────────────────────────────────────────────────────
+// When the user asks for N of a component (`shadcn add card --count 4`) they
+// want N DIFFERENT designs, not N identical clones. Components listed here
+// supply a pool of distinct layouts; `getVariety` cycles through it. All items
+// stay bound to the same var: tokens so they theme correctly (and benefit from
+// the visible-default fallback when no variables are loaded).
+const variety = {
+  // Distinct card archetypes: simple, stat, profile, media, notification, pricing.
+  card: () => [
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame name="CardHeader" flex="col" gap={6} p={24} w="fill"><Text size={20} weight="semibold" color="var:card-foreground" w="fill">Card Title</Text><Text size={14} color="var:muted-foreground" w="fill">Card description goes here.</Text></Frame><Frame name="CardContent" flex="col" gap={8} px={24} pb={24} w="fill"><Text size={14} color="var:card-foreground" w="fill">Your content goes here. Add any components or text.</Text></Frame><Frame name="CardFooter" flex="row" items="center" gap={8} px={24} pb={24} w="fill" justify="start"><Frame bg="var:primary" px={16} py={8} rounded={6} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:primary-foreground">Save</Text></Frame><Frame bg="var:background" stroke="var:input" strokeWidth={1} px={16} py={8} rounded={6} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:foreground">Cancel</Text></Frame></Frame></Frame>` },
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" gap={8} bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} p={24} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame flex="row" items="center" justify="between" w="fill"><Text size={14} weight="medium" color="var:muted-foreground" w="fill">Total Revenue</Text><Icon name="lucide:trending-up" size={16} color="var:primary" /></Frame><Text size={32} weight="bold" color="var:card-foreground" w="fill">$45,231.89</Text><Text size={13} color="var:muted-foreground" w="fill">+20.1% from last month</Text></Frame>` },
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" gap={16} bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} p={24} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame flex="row" items="center" gap={12} w="fill"><Frame w={48} h={48} bg="var:muted" rounded={9999} flex="row" justify="center" items="center"><Text size={18} weight="semibold" color="var:muted-foreground">JD</Text></Frame><Frame flex="col" gap={2} w="fill"><Text size={16} weight="semibold" color="var:card-foreground" w="fill">Jane Doe</Text><Text size={13} color="var:muted-foreground" w="fill">Product Designer</Text></Frame></Frame><Text size={14} color="var:card-foreground" w="fill">Building thoughtful interfaces and design systems for modern teams.</Text><Frame bg="var:primary" w="fill" px={16} py={10} rounded={8} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:primary-foreground">Follow</Text></Frame></Frame>` },
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} overflow="hidden" shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame w="fill" h={160} bg="var:muted" flex="row" justify="center" items="center"><Icon name="lucide:image" size={32} color="var:muted-foreground" /></Frame><Frame flex="col" gap={6} p={20} w="fill"><Text size={18} weight="semibold" color="var:card-foreground" w="fill">Mountain Escape</Text><Text size={14} color="var:muted-foreground" w="fill">A weekend retreat in the alps with panoramic views.</Text></Frame></Frame>` },
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="row" gap={12} items="start" bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} p={20} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame w={36} h={36} bg="var:accent" rounded={9999} flex="row" justify="center" items="center"><Icon name="lucide:bell" size={16} color="var:accent-foreground" /></Frame><Frame flex="col" gap={4} w="fill"><Text size={14} weight="semibold" color="var:card-foreground" w="fill">New comment on your post</Text><Text size={13} color="var:muted-foreground" w="fill">Alex replied: "This looks great, ship it!"</Text><Text size={12} color="var:muted-foreground" w="fill">2 minutes ago</Text></Frame></Frame>` },
+    { name: 'Card', jsx: `<Frame name="Card" w={340} flex="col" gap={16} bg="var:card" stroke="var:border" strokeWidth={1} rounded={12} p={24} shadow="0px 1px 2px rgba(0,0,0,0.05)"><Frame flex="col" gap={4} w="fill"><Text size={14} weight="medium" color="var:muted-foreground" w="fill">Pro</Text><Frame flex="row" items="end" gap={4}><Text size={36} weight="bold" color="var:card-foreground">$29</Text><Text size={14} color="var:muted-foreground">/month</Text></Frame></Frame><Frame flex="col" gap={8} w="fill"><Frame flex="row" gap={8} items="center" w="fill"><Icon name="lucide:check" size={16} color="var:primary" /><Text size={14} color="var:card-foreground" w="fill">Unlimited projects</Text></Frame><Frame flex="row" gap={8} items="center" w="fill"><Icon name="lucide:check" size={16} color="var:primary" /><Text size={14} color="var:card-foreground" w="fill">Priority support</Text></Frame><Frame flex="row" gap={8} items="center" w="fill"><Icon name="lucide:check" size={16} color="var:primary" /><Text size={14} color="var:card-foreground" w="fill">Advanced analytics</Text></Frame></Frame><Frame bg="var:primary" w="fill" px={16} py={10} rounded={8} flex="row" justify="center" items="center"><Text size={14} weight="medium" color="var:primary-foreground">Get started</Text></Frame></Frame>` },
+  ],
+};
+
 const VISUAL_COMPONENTS = Object.keys(components);
 
 // Components that are genuinely hard to represent as a static Figma snapshot
@@ -286,6 +304,23 @@ export function getComponent(name) {
   const fn = components[name];
   if (!fn) return null;
   return fn();
+}
+
+// Return `count` DISTINCT designs for a component that has a variety pool,
+// cycling through the pool if count exceeds its size. Returns null when the
+// component has no pool (caller then falls back to cloning the default).
+export function getVariety(name, count) {
+  const fn = variety[name];
+  if (!fn) return null;
+  const pool = fn();
+  if (!pool.length) return null;
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(pool[i % pool.length]);
+  return out;
+}
+
+export function hasVariety(name) {
+  return Boolean(variety[name]);
 }
 
 export function getAllComponents() {

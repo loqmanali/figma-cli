@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { FigmaClient } from '../src/figma-client.js';
+import { getVariety } from '../src/shadcn.js';
 
 const client = new FigmaClient();
 
@@ -57,6 +58,28 @@ describe('unresolved vars in single render', () => {
       assert.ok(code.includes('"primary"') && code.includes('0.094'), `${label}: primary default (dark) must be present`);
       assert.ok(code.includes('"primary-foreground"') && code.includes('0.98'), `${label}: primary-foreground default (near-white) must be present`);
     }
+  });
+});
+
+// ----------------------------------------------------------------
+// Variety pools: `shadcn add card --count N` gives N DIFFERENT cards
+// ----------------------------------------------------------------
+describe('component variety pools', () => {
+  it('card --count N yields N DISTINCT designs (not clones)', () => {
+    const four = getVariety('card', 4);
+    assert.strictEqual(four.length, 4, 'must return exactly N items');
+    assert.strictEqual(new Set(four.map(c => c.jsx)).size, 4, 'all 4 must be different layouts');
+    four.forEach(c => assert.strictEqual(c.name, 'Card', 'each is an independent Card frame'));
+  });
+
+  it('cycles through the pool when N exceeds its size', () => {
+    const eight = getVariety('card', 8);
+    assert.strictEqual(eight.length, 8, 'still returns N items');
+    assert.ok(new Set(eight.map(c => c.jsx)).size >= 6, 'covers the whole pool before repeating');
+  });
+
+  it('returns null for components without a variety pool', () => {
+    assert.strictEqual(getVariety('button', 3), null, 'buttons keep the clone-the-default behavior');
   });
 });
 
