@@ -229,10 +229,16 @@ figma-cli var delete-all -c "primitives"  # Only specific collection
 ## DESIGN.md Export (extract)
 
 `figma-cli extract [output.md]` scans the open file and writes a DESIGN.md
-(same 11-section format the importer reads — full roundtrip).
+(same 12-section format the importer reads — full roundtrip).
 
 - Default = ALL pages, ALL sections. Use `--pages "Button,ActionMenu"` (substring
   match) or `--selection` to scope; `--sections tokens` for tokens-only.
+- **Variables:** if the file defines real variable collections, extract captures
+  them (true names, all modes incl. light/dark/high-contrast, alias chains) into
+  a `## Variables` section + the JSON token block — not just the fills-sampled
+  palette. `figma-cli import` recreates those collections (modes + aliases) in
+  the target file. Captured in chunks so large systems (1000s of vars) don't
+  time out. `--sections variables` for variables-only.
 - **Auto-split:** when the structure trees alone exceed ~50k tokens (huge files
   like Primer Web), they move to `DESIGN-structure/` automatically and the main
   file stays AI-context-sized. `--split` forces this, `--no-split` prevents it.
