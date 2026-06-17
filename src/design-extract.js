@@ -64,7 +64,16 @@ export function walkerCode(pageId, { maxDepth = 8, textLimit = 80 } = {}) {
         o.txt = { chars: (n.characters || '').slice(0, TEXT_LIMIT) };
         if (n.fontName !== figma.mixed) { o.txt.font = n.fontName.family; o.txt.style = n.fontName.style; }
         if (n.fontSize !== figma.mixed) o.txt.size = n.fontSize;
-        if (n.lineHeight !== figma.mixed && n.lineHeight && n.lineHeight.unit !== 'AUTO') o.txt.lh = n.lineHeight.value;
+        if (n.lineHeight !== figma.mixed && n.lineHeight && n.lineHeight.unit !== 'AUTO') {
+          // PERCENT line-heights are relative to font size; resolve to absolute
+          // px so the table/JSON tokens are unambiguous and re-import cleanly.
+          // (A raw 142.85 from "142%" would otherwise read as 142.85px.)
+          if (n.lineHeight.unit === 'PERCENT') {
+            if (o.txt.size != null) o.txt.lh = Math.round(o.txt.size * n.lineHeight.value / 100 * 10) / 10;
+          } else {
+            o.txt.lh = n.lineHeight.value;
+          }
+        }
         if (n.letterSpacing !== figma.mixed && n.letterSpacing && n.letterSpacing.value) o.txt.ls = n.letterSpacing.value;
       }
       if (n.type === 'COMPONENT_SET') {
