@@ -435,14 +435,29 @@ export function formatVarValue(val) {
 }
 
 /**
+ * Escape an arbitrary string for use inside a single markdown table cell.
+ * Variable / collection / mode names and STRING token values come from any
+ * design system, so they may contain `|` (column separator) or newlines that
+ * would otherwise shatter the table. The JSON token block keeps raw values —
+ * this is purely for the human-readable tables. Pure.
+ */
+export function mdCell(s) {
+  return String(s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+/**
  * Resolved collections → the JSON `variables` block: keyed by collection name,
  * each with its mode list and a { name → {type, values} } variable map.
  * `values` keeps the resolved-alias shape ({ alias: name }) so it roundtrips.
+ * Collection names are not unique in Figma, so colliding names are suffixed
+ * ` (2)`, ` (3)`… rather than silently overwriting each other.
  */
 export function buildVariableTokens(resolvedCollections = []) {
   const out = {};
   for (const col of resolvedCollections) {
-    out[col.name] = {
+    let key = col.name;
+    for (let n = 2; key in out; n++) key = `${col.name} (${n})`;
+    out[key] = {
       modes: col.modes,
       variables: Object.fromEntries(col.variables.map(v => [v.name, { type: v.type, values: v.values }])),
     };
@@ -531,11 +546,11 @@ export function generateDesignMd(extraction, options = {}) {
         out.push('Real Figma variable collections — the authoritative tokens (names, modes, values). These come straight from the file, unlike the sampled palette above. `figma-cli import` can recreate them as variables.', '');
         for (const col of resolvedVars) {
           out.push(`### Collection: ${col.name}  ·  ${col.variables.length} variables  ·  modes: ${col.modes.join(', ')}`, '');
-          out.push(`| Variable | Type | ${col.modes.join(' | ')} |`);
+          out.push(`| Variable | Type | ${col.modes.map(mdCell).join(' | ')} |`);
           out.push(`|---|---|${col.modes.map(() => '---').join('|')}|`);
           for (const v of col.variables) {
-            const cells = col.modes.map(m => formatVarValue(v.values[m]));
-            out.push(`| ${v.name} | ${v.type} | ${cells.join(' | ')} |`);
+            const cells = col.modes.map(m => mdCell(formatVarValue(v.values[m])));
+            out.push(`| ${mdCell(v.name)} | ${v.type} | ${cells.join(' | ')} |`);
           }
           out.push('');
         }

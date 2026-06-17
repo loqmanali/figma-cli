@@ -273,7 +273,7 @@ test('generateDesignMd components section emits the Reuse line', () => {
 
 // ============ Variables capture ============
 
-import { variablesCode, resolveAliases, formatVarValue, buildVariableTokens } from '../src/design-extract.js';
+import { variablesCode, resolveAliases, formatVarValue, buildVariableTokens, mdCell } from '../src/design-extract.js';
 
 const FIXTURE_VARS = [
   {
@@ -341,6 +341,65 @@ test('generateDesignMd emits the Variables section with a per-collection table',
   assert.match(md, /\| button-primary-bgColor-rest \| COLOR \| `#1f883d` \| `#238636` \|/);
   // alias resolved to a name, not an id
   assert.match(md, /\| button-default-fgColor \| COLOR \| → var:fgColor-default \| → var:fgColor-default \|/);
+});
+
+// These guard generality across ARBITRARY design systems, not just Primer:
+// names/modes/values can contain markdown-hostile characters, and collection
+// names are not unique in Figma.
+
+test('mdCell escapes pipes and flattens newlines', () => {
+  assert.equal(mdCell('a|b'), 'a\\|b');
+  assert.equal(mdCell('line1\nline2'), 'line1 line2');
+  assert.equal(mdCell('plain'), 'plain');
+});
+
+test('generateDesignMd keeps table columns intact when names/values contain pipes', () => {
+  const vars = [{
+    id: 'C', name: 'Weird System',
+    modes: [{ id: 'm1', name: 'Light | HC' }, { id: 'm2', name: 'Dark' }],
+    variables: [
+      { id: 'V1', name: 'spacing|inset', type: 'STRING', values: { 'Light | HC': 'a|b', Dark: 'x' } },
+    ],
+  }];
+  const md = generateDesignMd({ ...EXTRACTION, variables: vars });
+  const row = md.split('\n').find(l => l.startsWith('| spacing'));
+  // a literal pipe in content must be escaped so it isn't read as a column break
+  assert.ok(row.includes('spacing\\|inset'), row);
+  assert.ok(row.includes('"a\\|b"'), row);
+  // header carries the escaped mode name
+  assert.match(md, /Light \\\| HC/);
+  // every body row has the same column count as the header (5 cells → 6 bars)
+  const headerBars = (md.split('\n').find(l => l.startsWith('| Variable')).match(/(?<!\\)\|/g) || []).length;
+  const rowBars = (row.match(/(?<!\\)\|/g) || []).length;
+  assert.equal(rowBars, headerBars);
+});
+
+test('buildVariableTokens suffixes duplicate collection names instead of overwriting', () => {
+  const dup = [
+    { name: 'Theme', modes: ['default'], variables: [{ name: 'a', type: 'COLOR', values: { default: '#111111' } }] },
+    { name: 'Theme', modes: ['default'], variables: [{ name: 'b', type: 'COLOR', values: { default: '#222222' } }] },
+  ];
+  const tokens = buildVariableTokens(dup);
+  assert.deepEqual(Object.keys(tokens), ['Theme', 'Theme (2)']);
+  assert.ok(tokens['Theme'].variables.a);
+  assert.ok(tokens['Theme (2)'].variables.b);
+});
+
+test('captures all four Figma variable resolved types (not just colors)', () => {
+  const vars = [{
+    id: 'C', name: 'Mixed', modes: [{ id: 'm', name: 'default' }],
+    variables: [
+      { id: '1', name: 'col', type: 'COLOR', values: { default: '#abcdef' } },
+      { id: '2', name: 'num', type: 'FLOAT', values: { default: 8 } },
+      { id: '3', name: 'str', type: 'STRING', values: { default: 'Inter' } },
+      { id: '4', name: 'flag', type: 'BOOLEAN', values: { default: true } },
+    ],
+  }];
+  const md = generateDesignMd({ ...EXTRACTION, variables: vars });
+  assert.match(md, /\| col \| COLOR \| `#abcdef` \|/);
+  assert.match(md, /\| num \| FLOAT \| 8 \|/);
+  assert.match(md, /\| str \| STRING \| "Inter" \|/);
+  assert.match(md, /\| flag \| BOOLEAN \| true \|/);
 });
 
 test('Variables roundtrip: parseDesignMd reads the JSON variables block back', () => {
