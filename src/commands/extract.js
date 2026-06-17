@@ -5,7 +5,7 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { program, checkConnection, fastEval } from '../lib/cli-core.js';
 import {
-  listPagesCode, walkerCode, generateDesignMd, generatePageStructureMd,
+  listPagesCode, walkerCode, variablesCode, generateDesignMd, generatePageStructureMd,
   estimateStructureTokens, ALL_SECTIONS,
 } from '../design-extract.js';
 
@@ -83,6 +83,19 @@ program
         `(async () => JSON.stringify(figma.root.name))()`
       ));
 
+      // Authoritative token layer: the file's real variable collections.
+      // Best-effort — older Figma builds or files without variables yield [].
+      let variables = [];
+      const wantsVariables = !sections || sections.includes('variables');
+      if (wantsVariables) {
+        spinner.text = 'Reading variable collections…';
+        try {
+          variables = parseEvalResult(await fastEval(variablesCode())) || [];
+        } catch (e) {
+          variables = [];
+        }
+      }
+
       const results = [];
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
@@ -115,6 +128,7 @@ program
         fileName,
         date: new Date().toISOString().slice(0, 10),
         pages: results,
+        variables,
       };
 
       // Auto-split: when the structure trees alone would blow any AI context
@@ -154,6 +168,10 @@ program
       const failed = results.filter(r => r.error);
       const totalNodes = results.reduce((a, p) => a + (p.nodeCount || 0), 0);
       spinner.succeed(`Extracted ${results.length} page(s), ${totalNodes} nodes → ${outPath}`);
+      if (variables.length) {
+        const varCount = variables.reduce((a, c) => a + (c.variables?.length || 0), 0);
+        console.log(chalk.gray(`  Captured ${varCount} variable(s) across ${variables.length} collection(s) — real token names + modes (see § Variables)`));
+      }
       if (autoSplit) console.log(chalk.gray(`  Structure (~${Math.round(structTokens / 1000)}k tokens) auto-split into DESIGN-structure/ — main file stays AI-context-sized (--no-split to override)`));
       else if (doSplit) console.log(chalk.gray(`  + ${results.length} structure file(s) in DESIGN-structure/`));
       if (failed.length) {

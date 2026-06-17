@@ -188,16 +188,22 @@ const EXTRACTION = {
   pages: FIXTURE_PAGES,
 };
 
-test('generateDesignMd emits all 11 sections by default', () => {
+test('generateDesignMd emits all 12 sections by default', () => {
   const md = generateDesignMd(EXTRACTION);
   for (const [i, title] of [
-    [1, 'Identity'], [2, 'Structure'], [3, 'Color'], [4, 'Typography'],
-    [5, 'Spacing & Layout'], [6, 'Depth & Motion'], [7, 'Components'],
-    [8, 'States'], [9, 'Rules'], [10, 'Extending this system'],
-    [11, 'Machine-readable tokens'],
+    [1, 'Identity'], [2, 'Structure'], [3, 'Color'], [4, 'Variables'],
+    [5, 'Typography'], [6, 'Spacing & Layout'], [7, 'Depth & Motion'],
+    [8, 'Components'], [9, 'States'], [10, 'Rules'],
+    [11, 'Extending this system'], [12, 'Machine-readable tokens'],
   ]) {
     assert.match(md, new RegExp(`^## ${i}\\. ${title.replace(/[&]/g, '\\$&')}`, 'm'), `missing section ${i} ${title}`);
   }
+});
+
+test('Variables section degrades gracefully when the file has no variables', () => {
+  const md = generateDesignMd(EXTRACTION); // fixture has no `variables`
+  assert.match(md, /^## 4\. Variables/m);
+  assert.match(md, /no local variables found/);
 });
 
 test('generateDesignMd respects --sections selection and renumbers', () => {
@@ -263,4 +269,80 @@ test('generateDesignMd components section emits the Reuse line', () => {
   ] }];
   const md = generateDesignMd({ fileName: 'F', date: '2026-06-16', pages }, { sections: ['components'] });
   assert.match(md, /Reuse: import existing — key `abc123` · node `10:5`/);
+});
+
+// ============ Variables capture ============
+
+import { variablesCode, resolveAliases, formatVarValue, buildVariableTokens } from '../src/design-extract.js';
+
+const FIXTURE_VARS = [
+  {
+    id: 'VC:1', name: 'Primer Primitives',
+    modes: [{ id: 'm1', name: 'Light' }, { id: 'm2', name: 'Dark' }],
+    variables: [
+      { id: 'V:1', name: 'fgColor-default', type: 'COLOR', values: { Light: '#1f2328', Dark: '#e6edf3' } },
+      { id: 'V:2', name: 'button-primary-bgColor-rest', type: 'COLOR', values: { Light: '#1f883d', Dark: '#238636' } },
+      { id: 'V:3', name: 'control-medium-size', type: 'FLOAT', values: { Light: 32, Dark: 32 } },
+      // alias to another variable, captured as an id by the walker
+      { id: 'V:4', name: 'button-default-fgColor', type: 'COLOR', values: { Light: { alias: 'V:1' }, Dark: { alias: 'V:1' } } },
+    ],
+  },
+];
+
+test('variablesCode is valid JS and uses the dynamic-page variable APIs', () => {
+  const code = variablesCode();
+  assert.doesNotThrow(() => new Function(`return ${code}`));
+  assert.match(code, /getLocalVariableCollectionsAsync/);
+  assert.match(code, /getVariableByIdAsync/);
+  assert.match(code, /VARIABLE_ALIAS/);
+});
+
+test('resolveAliases swaps alias ids for the referenced variable name', () => {
+  const resolved = resolveAliases(FIXTURE_VARS);
+  const aliasVar = resolved[0].variables.find(v => v.name === 'button-default-fgColor');
+  assert.deepEqual(aliasVar.values.Light, { alias: 'fgColor-default' });
+  assert.deepEqual(resolved[0].modes, ['Light', 'Dark']);
+});
+
+test('resolveAliases leaves unknown alias ids untouched (cross-library refs)', () => {
+  const resolved = resolveAliases([{ name: 'C', modes: [{ id: 'm', name: 'M' }], variables: [
+    { id: 'V:9', name: 'x', type: 'COLOR', values: { M: { alias: 'EXTERNAL:42' } } },
+  ] }]);
+  assert.deepEqual(resolved[0].variables[0].values.M, { alias: 'EXTERNAL:42' });
+});
+
+test('formatVarValue renders hex, alias, number and string cells', () => {
+  assert.equal(formatVarValue('#1f883d'), '`#1f883d`');
+  assert.equal(formatVarValue({ alias: 'fgColor-default' }), '→ var:fgColor-default');
+  assert.equal(formatVarValue(32), '32');
+  assert.equal(formatVarValue('auto'), '"auto"');
+  assert.equal(formatVarValue(undefined), '—');
+});
+
+test('buildVariableTokens keys by collection name with modes + variable map', () => {
+  const tokens = buildVariableTokens(resolveAliases(FIXTURE_VARS));
+  assert.deepEqual(tokens['Primer Primitives'].modes, ['Light', 'Dark']);
+  assert.equal(tokens['Primer Primitives'].variables['button-primary-bgColor-rest'].values.Light, '#1f883d');
+  assert.equal(tokens['Primer Primitives'].variables['button-primary-bgColor-rest'].type, 'COLOR');
+});
+
+test('generateDesignMd emits the Variables section with a per-collection table', () => {
+  const md = generateDesignMd({ ...EXTRACTION, variables: FIXTURE_VARS });
+  assert.match(md, /### Collection: Primer Primitives {2}· {2}4 variables {2}· {2}modes: Light, Dark/);
+  assert.match(md, /\| button-primary-bgColor-rest \| COLOR \| `#1f883d` \| `#238636` \|/);
+  // alias resolved to a name, not an id
+  assert.match(md, /\| button-default-fgColor \| COLOR \| → var:fgColor-default \| → var:fgColor-default \|/);
+});
+
+test('Variables roundtrip: parseDesignMd reads the JSON variables block back', () => {
+  const md = generateDesignMd({ ...EXTRACTION, variables: FIXTURE_VARS });
+  const dir = mkdtempSync(join(tmpdir(), 'extract-vars-'));
+  const file = join(dir, 'DESIGN.md');
+  writeFileSync(file, md);
+  const parsed = parseDesignMd(file);
+  const pp = parsed.tokens.variables['Primer Primitives'];
+  assert.deepEqual(pp.modes, ['Light', 'Dark']);
+  assert.equal(pp.variables['fgColor-default'].values.Dark, '#e6edf3');
+  // existing color/typography parsing still works alongside the new block
+  assert.ok(Object.values(parsed.tokens.color).includes('#ffffff'));
 });

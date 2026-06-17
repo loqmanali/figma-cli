@@ -19,6 +19,45 @@ export function listPagesCode() {
 }
 
 /**
+ * Eval snippet: capture every LOCAL variable collection of the open file —
+ * names, modes, and each variable's per-mode resolved value. This is the
+ * authoritative token layer (e.g. Primer's `button-primary-bgColor-rest`),
+ * which the derived color palette can only approximate by sampling fills.
+ *
+ * COLOR values resolve to hex (8-digit when alpha < 1), FLOAT/STRING/BOOLEAN
+ * pass through, and VARIABLE_ALIAS values are captured as { alias: <id> } for
+ * Node-side name resolution. Self-contained for the plugin sandbox.
+ */
+export function variablesCode() {
+  return `(async () => {
+    const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (c.a != null && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, '0') : '');
+    let cols = [];
+    try { cols = await figma.variables.getLocalVariableCollectionsAsync(); } catch (e) { return JSON.stringify([]); }
+    const out = [];
+    for (const col of cols) {
+      const modes = col.modes.map(m => ({ id: m.modeId, name: m.name }));
+      const variables = [];
+      for (const id of col.variableIds) {
+        let v;
+        try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) { continue; }
+        if (!v) continue;
+        const values = {};
+        for (const m of col.modes) {
+          const raw = v.valuesByMode[m.modeId];
+          if (raw == null) continue;
+          if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') values[m.name] = { alias: raw.id };
+          else if (v.resolvedType === 'COLOR' && raw && typeof raw === 'object' && 'r' in raw) values[m.name] = hex(raw);
+          else values[m.name] = raw;
+        }
+        variables.push({ id: v.id, name: v.name, type: v.resolvedType, values });
+      }
+      out.push({ id: col.id, name: col.name, modes, variables });
+    }
+    return JSON.stringify(out);
+  })()`;
+}
+
+/**
  * Eval snippet: walk one page and return its compact node tree.
  * Kept self-contained — no outer-scope references — because it runs in the
  * Figma plugin sandbox.
@@ -349,15 +388,66 @@ export function reuseHandleLine({ key, id } = {}) {
   return `Reuse: import existing — ${parts.join(' · ')}`;
 }
 
+// ============ Variables (real Figma variable collections) ============
+
+/**
+ * Replace every { alias: <variableId> } in a captured collection list with
+ * { alias: <variableName> } so the export is portable (ids are file-local and
+ * meaningless after re-import; names are the stable reference). Unknown ids
+ * (e.g. aliases to other libraries) are left as the raw id. Pure; returns a
+ * new structure, does not mutate the input.
+ */
+export function resolveAliases(collections = []) {
+  const idToName = new Map();
+  for (const col of collections)
+    for (const v of col.variables || []) idToName.set(v.id, v.name);
+  const resolveVal = (val) =>
+    val && typeof val === 'object' && 'alias' in val
+      ? { alias: idToName.get(val.alias) || val.alias }
+      : val;
+  return collections.map(col => ({
+    name: col.name,
+    modes: (col.modes || []).map(m => m.name),
+    variables: (col.variables || []).map(v => ({
+      name: v.name, type: v.type,
+      values: Object.fromEntries(Object.entries(v.values || {}).map(([m, val]) => [m, resolveVal(val)])),
+    })),
+  }));
+}
+
+/** One variable value → a markdown table cell. Pure. */
+export function formatVarValue(val) {
+  if (val == null) return '—';
+  if (typeof val === 'object' && 'alias' in val) return `→ var:${val.alias}`;
+  if (typeof val === 'string') return val.startsWith('#') ? `\`${val}\`` : `"${val}"`;
+  return String(val);
+}
+
+/**
+ * Resolved collections → the JSON `variables` block: keyed by collection name,
+ * each with its mode list and a { name → {type, values} } variable map.
+ * `values` keeps the resolved-alias shape ({ alias: name }) so it roundtrips.
+ */
+export function buildVariableTokens(resolvedCollections = []) {
+  const out = {};
+  for (const col of resolvedCollections) {
+    out[col.name] = {
+      modes: col.modes,
+      variables: Object.fromEntries(col.variables.map(v => [v.name, { type: v.type, values: v.values }])),
+    };
+  }
+  return out;
+}
+
 // ============ Markdown writer ============
 
 export const ALL_SECTIONS = [
-  'identity', 'structure', 'color', 'typography', 'spacing',
+  'identity', 'structure', 'color', 'variables', 'typography', 'spacing',
   'depth', 'components', 'states', 'rules', 'extending', 'tokens',
 ];
 
 const SECTION_TITLES = {
-  identity: 'Identity', structure: 'Structure', color: 'Color',
+  identity: 'Identity', structure: 'Structure', color: 'Color', variables: 'Variables',
   typography: 'Typography', spacing: 'Spacing & Layout', depth: 'Depth & Motion',
   components: 'Components', states: 'States', rules: 'Rules',
   extending: 'Extending this system', tokens: 'Machine-readable tokens',
@@ -379,6 +469,7 @@ export function generateDesignMd(extraction, options = {}) {
   const baseUnit = inferBaseUnit(census.spacing);
   const fonts = [...census.fonts];
   const hexToName = Object.fromEntries(Object.entries(colorNames).map(([n, h]) => [h, n]));
+  const resolvedVars = resolveAliases(extraction.variables || []);
 
   const out = [];
   out.push(`# DESIGN.md -- ${extraction.fileName}`, '');
@@ -420,6 +511,24 @@ export function generateDesignMd(extraction, options = {}) {
       const ranked = [...census.colors.entries()].sort((a, b) => b[1] - a[1]);
       for (const [hex, count] of ranked) out.push(`| ${hexToName[hex]} | \`${hex}\` | ${count} |`);
       out.push('');
+    }
+    if (key === 'variables') {
+      header(key);
+      if (!resolvedVars.length) {
+        out.push('_no local variables found — this file has no variable collections, the palette above is sampled from raw fills_', '');
+      } else {
+        out.push('Real Figma variable collections — the authoritative tokens (names, modes, values). These come straight from the file, unlike the sampled palette above. `figma-cli import` can recreate them as variables.', '');
+        for (const col of resolvedVars) {
+          out.push(`### Collection: ${col.name}  ·  ${col.variables.length} variables  ·  modes: ${col.modes.join(', ')}`, '');
+          out.push(`| Variable | Type | ${col.modes.join(' | ')} |`);
+          out.push(`|---|---|${col.modes.map(() => '---').join('|')}|`);
+          for (const v of col.variables) {
+            const cells = col.modes.map(m => formatVarValue(v.values[m]));
+            out.push(`| ${v.name} | ${v.type} | ${cells.join(' | ')} |`);
+          }
+          out.push('');
+        }
+      }
     }
     if (key === 'typography') {
       header(key);
@@ -509,6 +618,7 @@ export function generateDesignMd(extraction, options = {}) {
         radius: Object.fromEntries(Object.entries(radiusNames).map(([n, v]) => [n, `${v}px`])),
         shadow: {},
         fonts,
+        ...(resolvedVars.length ? { variables: buildVariableTokens(resolvedVars) } : {}),
       };
       let i = 0;
       for (const [json] of [...census.shadows.entries()].sort((a, b) => b[1] - a[1])) {
