@@ -186,10 +186,11 @@ return JSON.stringify(tree, null, 2);
 
 program
   .command('verify [nodeId]')
-  .description('Take a small screenshot for AI verification (returns base64 or saves to file)')
+  .description('Take a small screenshot for AI verification (saves PNG to disk by default; --base64 to dump inline)')
   .option('-s, --scale <number>', 'Export scale (default: 0.5 for small size)', '0.5')
   .option('--max <pixels>', 'Max dimension in pixels (default: 2000)', '2000')
-  .option('--save [path]', 'Save as PNG file (default: /tmp/figma-verify-{id}.png)')
+  .option('--save [path]', 'Custom PNG path (default: /tmp/figma-verify-{id}.png — save is the DEFAULT)')
+  .option('--base64', 'Dump the base64 PNG to stdout instead of saving (token-heavy — opt-in only)')
   .option('--measure', 'Also return real (unscaled) node + child dimensions so size bugs are caught by measurement, not just the screenshot')
   .action((nodeId, options) => {
     checkConnection();
@@ -263,8 +264,20 @@ program
       process.exit(1);
     }
 
-    // Save to file if --save option provided
-    if (options.save !== undefined) {
+    // Default: save the PNG to disk and return only metadata (lean on tokens).
+    // Dumping the raw base64 into stdout is now opt-in via --base64, because it
+    // lands in the agent's context as raw text (tens of thousands of tokens for
+    // a full frame). Reading the saved PNG back instead enters it as a real image.
+    if (options.base64) {
+      console.log(JSON.stringify({
+        name: result.name,
+        id: result.id,
+        width: result.width,
+        height: result.height,
+        base64: result.base64,
+        ...(result.measure ? { measure: result.measure } : {})
+      }));
+    } else {
       const safeId = result.id.replace(/:/g, '-');
       const savePath = typeof options.save === 'string'
         ? options.save
@@ -279,16 +292,6 @@ program
         width: result.width,
         height: result.height,
         saved: savePath,
-        ...(result.measure ? { measure: result.measure } : {})
-      }));
-    } else {
-      // Output as JSON for easy parsing
-      console.log(JSON.stringify({
-        name: result.name,
-        id: result.id,
-        width: result.width,
-        height: result.height,
-        base64: result.base64,
         ...(result.measure ? { measure: result.measure } : {})
       }));
     }

@@ -169,7 +169,11 @@ figma-cli verify "123:456"    # Screenshot of specific node
 figma-cli verify "123:456" --measure   # + real w/h of the node and its children
 ```
 
-Returns JSON with base64 image (max 2000px). This is for internal AI checks, not shown to users.
+By default `verify` SAVES the PNG to `/tmp/figma-verify-{id}.png` (max 2000px) and
+returns only `{id,name,width,height,saved}` — lean on tokens. Read that PNG back if
+you need to see it (it enters context as a real image, not raw base64 text). Pass
+`--base64` only when a script genuinely needs the inline data. This is for internal
+AI checks, not shown to users.
 
 **`--measure`** adds a `measure` tree (real unscaled w/h, layout mode, FILL/HUG/FIXED
 sizing for the node + up to 3 levels of children). Use it to catch size bugs by
@@ -184,8 +188,9 @@ Big tool output accumulates in the conversation; when context fills, Claude Code
 compacts it and DETAILS get lost (exact node IDs, values, what was tried), which
 shows up as confidently-wrong recall ("hallucinated" IDs). Keep context lean:
 
-- **Always `verify --save <path>`** for visual checks — writes the PNG to disk and
-  returns just dimensions, instead of dumping a base64 image (~2k tokens) into context.
+- **`verify` saves the PNG to disk by default** and returns just dimensions, instead
+  of dumping a base64 image (thousands of tokens) into context. Use `--save <path>`
+  only to pick a custom path; avoid `--base64` unless a script needs the inline data.
 - **Pipe bulky command output to `wc -c` / a file** when you only need the size or
   a grep, not the whole thing (`… | grep -E "✓|✗"`, `… > /tmp/out.txt; wc -l`).
 - **Prefer the terse commands**: `spec --check` returns a short verdict; `daemon
