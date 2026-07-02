@@ -356,18 +356,18 @@ program
     // Step 2: Patch Figma
     console.log(chalk.blue('\nStep 2/3: ') + 'Patching Figma Desktop...');
     const config = loadConfig();
-    if (config.patched) {
+    // Verify against the real app.asar, not the cached flag: a Figma update
+    // replaces app.asar and silently reverts the patch, so the cache goes stale.
+    const patchStatus = isPatched();
+    if (patchStatus === true) {
+      config.patched = true;
+      saveConfig(config);
       console.log(chalk.green('  ✓ Figma already patched'));
     } else {
       console.log(chalk.gray('  (This allows CLI to connect to Figma)'));
       const spinner = ora('  Patching...').start();
       try {
-        const patchStatus = isPatched();
-        if (patchStatus === true) {
-          config.patched = true;
-          saveConfig(config);
-          spinner.succeed('Figma already patched');
-        } else if (patchStatus === false) {
+        if (patchStatus === false) {
           patchFigma();
           config.patched = true;
           saveConfig(config);
@@ -602,14 +602,14 @@ program
     // Yolo Mode: CDP-based connection (default)
     console.log(chalk.hex('#FF6B35')('  🚀 Yolo Mode ') + chalk.gray('(direct CDP connection)\n'));
 
-    // Patch Figma if needed
-    if (!config.patched) {
+    // Patch Figma if needed. Verify against the actual app.asar, NOT the cached
+    // config.patched flag: a Figma update replaces app.asar with a fresh (unpatched)
+    // copy, so a stale cache would skip re-patching and the CDP port stays blocked.
+    const patchStatus = isPatched();
+    if (patchStatus !== true) {
       const patchSpinner = ora('Setting up Figma connection...').start();
       try {
-        const patchStatus = isPatched();
-        if (patchStatus === true) {
-          patchSpinner.succeed('Figma ready');
-        } else if (patchStatus === false) {
+        if (patchStatus === false) {
           patchFigma();
           patchSpinner.succeed('Figma configured');
         } else {
