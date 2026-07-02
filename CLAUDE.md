@@ -39,6 +39,11 @@ CLI that controls Figma Desktop directly. No API key needed.
 **Wallpaper palette tip:** for rich results pass **5-6 hue-diverse colors** (mix warm + cool + a bright accent), not shades of one color. Analogous palettes blend into a flat 2-tone wash. The command auto-adds a depth anchor + focal glow, and `--style auto` rotates compositions (scatter/diagonal/bands/drift/spotlight/corners). For N wallpapers, run it N times with different palettes + styles. Add `--grain` for subtle film-grain NOISE or `--texture` for paper grain over the wallpaper.
 
 **Liquid glass tip (Apple-style):** Figma's native `GLASS` effect (`glass={true}`) reproduces the STATIC optics of Apple Liquid Glass — edge-lensing/refraction (`glassDepth`), specular highlight (`glassLight`/`glassLightAngle`), chromatic dispersion (`glassDispersion`) — but NOT the live material (no motion/scroll adaptation). To make it read as liquid (not frosted): keep `glassRadius` LOW (clear) + `glassDepth` HIGH (strong rim lensing) + put **sharp, detailed content BEHIND** the glass so the lensing is visible. Over a smooth gradient with nothing behind it, any glass looks frosted. Best demo = real UI over a photo-like background (e.g. an iOS Control Center: glass tiles over a vivid wallpaper).
+| "animate this" / "add a fade/keyframe" | `figma-cli motion add <id> --field opacity --keys "0:0, 0.4:1:ease-out"` |
+| "fade it in / pop / slide in" | `figma-cli motion preset <id> fade-up` |
+| "stagger / sequence these in" | `figma-cli motion stagger <id,id,id> --preset fade-up --step 0.1` |
+| "build a complex animation" | `figma-cli motion apply <spec.json>` (multi-node/track/keyframe) |
+| "what animation is on this" | `figma-cli motion inspect <id>` |
 | "show all variants" | `figma-cli combos` |
 | "create size variants" | `figma-cli sizes --base small` |
 | "make these frames a variant set" / "combine into variants" | `figma-cli variants from <ids> --property Size --values Small,Medium,Large --name Button` |
@@ -526,6 +531,30 @@ figma-cli slot add "slot-id" --component "comp-id"
 JSX: `<Slot name="Content" flex="col" gap={8} w="fill" />` (creates real slot when parent is component)
 
 ---
+
+## Motion (Figma Animation, Config 2026 Beta)
+
+Native Figma Motion: keyframe tracks, presets, first-party styles, timelines.
+Isolated in the `motion` command namespace. **Beta + rollout-flagged** — if the
+user's Figma lacks it, every subcommand exits with a clear "not enabled" message.
+
+```bash
+figma-cli motion add <id> --field opacity --keys "0:0, 0.4:1:ease-out"   # N keyframes, 1 property
+figma-cli motion add <id> --field fill --from "#ec4899" --to "#22c55e" --dur 0.6  # animate a solid fill
+figma-cli motion preset <id> fade-up            # fade-in/fade-up/fade-down/slide-left/slide-right/pop/spin
+figma-cli motion stagger <id,id,id> --preset fade-up --step 0.1   # choreograph a sequence
+figma-cli motion apply <spec.json>              # multi-node/track/keyframe spec (the power tool)
+figma-cli motion style <id> opacity             # Figma's first-party styles (motion styles to list)
+figma-cli motion timeline <id> --duration 2     # read/set the frame timeline
+figma-cli motion inspect <id>                   # read back tracks/styles/timeline (verification)
+figma-cli motion clear <id> [--field opacity] [--styles]
+```
+
+- **Fields (aliases):** `opacity, translateX/Y, scale, rotate, radius, width, height, strokeWeight, gap, fill, stroke`. Transform fields are additive (neutral 0, scale 1); others replace. `scale` is a VECTOR (scalar expands to both axes).
+- **Easing (aliases):** `ease-out, ease-in, ease-in-out, gentle, quick, spring, spring(0.6), cubic(x1,y1,x2,y2), linear, hold`.
+- **Node targeting:** motion can't animate a top-level frame. A frame id auto-descends into its single child (prints "via …"); with multiple children it errors and lists them, so animate the **child** ids (from `find`/`canvas info`).
+- **`apply` spec:** `{ "duration": 1.2, "tracks": [ { "node":"12:5", "field":"opacity", "keys":[{"t":0,"v":0},{"t":0.4,"v":1,"ease":"ease-out"}] }, … ] }`. Omit `duration` to auto-fit the last keyframe; it's never shortened.
+- **Verify by numbers, not video:** `motion inspect` reads tracks back (same philosophy as `spec --check`). Real motion preview is a server-side video export, outside the Plugin API — don't attempt it in the CLI.
 
 ## Variant Sets (Frames or Components → Component Set)
 

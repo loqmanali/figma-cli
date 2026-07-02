@@ -169,6 +169,11 @@ Just say it in plain language. A few examples:
 - "Switch this design from Stripe to Apple." *(swap a whole layout between brands)*
 - "Export this file's design system as markdown." *(any open file → `DESIGN.md` , see below)*
 
+**Animate (Figma Motion)**
+- "Fade this card in / make it pop / slide it in."
+- "Stagger these rows in one after another."
+- "Add a keyframe animation , opacity 0 to 1 over half a second."
+
 **Polish & hand off**
 - "Check the color contrast / touch targets / text sizes."
 - "Export this as PNG / SVG."
@@ -227,7 +232,7 @@ Prefer to keep everything on your machine? figma-cli also works with **local LLM
 
 ## Everything it can do
 
-**40+ ready components · 30+ capabilities · 8 areas.** You trigger any of these just by asking.
+**40+ ready components · 35+ capabilities · 9 areas.** You trigger any of these just by asking.
 
 **🧩 Components (40+ components + 3 tools)**
 - 40+ shadcn/ui components (buttons, cards, inputs, dialogs, tabs, calendar, sidebar, …) with real Lucide icons
@@ -253,6 +258,13 @@ Prefer to keep everything on your machine? figma-cli also works with **local LLM
 - Pre-built **blocks** (full dashboards, page layouts) in one step
 - Precise absolute positioning (pin to corners, center, stretch)
 - Sections and layout grids to organize the canvas
+
+**🎬 Motion & animation (5)** *(Figma Motion, Config 2026 Beta)*
+- **Keyframe any property** , opacity, position, scale, rotation, corner radius, fills/strokes , with multi-step timing and per-keyframe easing
+- **Presets** for instant polish: fade-in, fade-up, slide, pop, spin
+- **Stagger / sequence** the same animation across many layers with one command
+- Apply Figma's **first-party animation styles** and set **timeline** duration
+- Author complex, multi-layer animations from a single JSON spec; inspect any layer's motion by numbers
 
 **♿ Accessibility (4)**
 - Contrast checking (WCAG)

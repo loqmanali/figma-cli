@@ -26,6 +26,7 @@ import './commands/extract.js';
 import './commands/spec.js';
 import './commands/instantiate.js';
 import './commands/init.js';
+import './commands/motion.js';
 import { program } from './lib/cli-core.js';
 
 program.parse();
