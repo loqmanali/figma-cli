@@ -1318,7 +1318,10 @@ export class FigmaClient {
         } catch (e) {}` : ''}
         ${nestedChildren}
         ${fWrap && fFlex === 'row' && fWrapGap > 0 ? `el${idx}.counterAxisSpacing = ${fWrapGap};` : ''}
-        ${effectivePosition === 'absolute' ? `
+        ${parentIsNone ? `
+          ${item.x !== undefined ? `el${idx}.x = ${fAbsoluteX};` : ''}
+          ${item.y !== undefined ? `el${idx}.y = ${fAbsoluteY};` : ''}
+        ` : effectivePosition === 'absolute' ? `
           el${idx}.layoutPositioning = 'ABSOLUTE';
           (function applyEdges() {
             const pp = el${idx}.parent;
@@ -1396,7 +1399,8 @@ export class FigmaClient {
         el${idx}.resize(${rWidth}, ${rHeight});
         el${idx}.cornerRadius = ${rRounded};
         ${rectFillCode.code}
-        ${parentVar}.appendChild(el${idx});`;
+        ${parentVar}.appendChild(el${idx});
+        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'ellipse') {
           // Ellipse / Circle. arc (sweep degrees) + arcStart (start degrees,
           // 0 = 3 o'clock, clockwise) + innerRadius (0–1) make rings, spinners,
@@ -1423,7 +1427,8 @@ export class FigmaClient {
         ${ellFillCode.code}
         ${ellStrokeCode.code}
         ${hasArc ? `try { el${idx}.arcData = { startingAngle: ${startRad}, endingAngle: ${endRad}, innerRadius: ${inner} }; } catch(e) {}` : ''}
-        ${parentVar}.appendChild(el${idx});`;
+        ${parentVar}.appendChild(el${idx});
+        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'image') {
           // Image placeholder (gray rectangle with image icon concept)
           const iWidth = item.w || item.width || 200;
@@ -1439,7 +1444,8 @@ export class FigmaClient {
         el${idx}.resize(${iWidth}, ${iHeight});
         el${idx}.cornerRadius = ${iRounded};
         ${imgFillCode.code}
-        ${parentVar}.appendChild(el${idx});`;
+        ${parentVar}.appendChild(el${idx});
+        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'icon') {
           const icSize = item.size || item.s || 24;
           const icBg = item.color || item.c || '#71717a';
@@ -2056,6 +2062,36 @@ export class FigmaClient {
    *   glass={true}                           — liquid GLASS (glassRefraction/glassDepth/glassRadius/glassDispersion/glassLight/glassLightAngle)
    * Multiple effects accumulate.
    */
+  /**
+   * Generic node-level props shared by ALL child node types (Ellipse, Rect,
+   * Image — Frames handle these inline). Emits opacity, visible, rotation,
+   * effects (blur/shadow/noise/…), and positioning. MUST be appended AFTER
+   * appendChild (positioning needs a parent).
+   *
+   * Positioning: in a flex="none" (z-stack) parent, children are positioned by
+   * plain x/y — setting layoutPositioning='ABSOLUTE' there THROWS (only valid in
+   * auto-layout), so we set x/y directly. In an auto-layout parent, position=
+   * "absolute" maps to layoutPositioning='ABSOLUTE' + x/y.
+   */
+  genCommonNodeProps(item, varName, parentIsNone) {
+    const parts = [];
+    if (item.opacity !== undefined && item.opacity !== null) parts.push(`${varName}.opacity = ${Number(item.opacity)};`);
+    if (item.visible === false || item.visible === 'false') parts.push(`${varName}.visible = false;`);
+    if (item.rotate !== undefined) parts.push(`${varName}.rotation = ${Number(item.rotate)};`);
+    const eff = this.generateEffectsCode(item, varName);
+    if (eff && eff.trim()) parts.push(eff);
+    const hasX = item.x !== undefined, hasY = item.y !== undefined;
+    if (parentIsNone) {
+      if (hasX) parts.push(`${varName}.x = ${Number(item.x)};`);
+      if (hasY) parts.push(`${varName}.y = ${Number(item.y)};`);
+    } else if (item.position === 'absolute' && (hasX || hasY)) {
+      parts.push(`try { ${varName}.layoutPositioning = 'ABSOLUTE'; } catch (e) {}`);
+      if (hasX) parts.push(`${varName}.x = ${Number(item.x)};`);
+      if (hasY) parts.push(`${varName}.y = ${Number(item.y)};`);
+    }
+    return parts.join('\n        ');
+  }
+
   generateEffectsCode(props, elementVar) {
     const effects = [];
     if (props.shadow) {
