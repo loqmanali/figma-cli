@@ -162,7 +162,9 @@ async function isCdpHealthy(forceCheck = false) {
 
   try {
     const result = await Promise.race([
-      cdpClient.eval('1'), // Simple eval, just check connection works
+      // Checks the Plugin API, not just the socket: after a file reload the
+      // socket is fine but the bound context has no `figma` any more.
+      cdpClient.eval('typeof figma === "object" && figma !== null && !!figma.root ? 1 : 0'),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
     ]);
     lastHealthCheck = now;

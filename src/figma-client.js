@@ -20,6 +20,10 @@ const UNWRAP_ROOT = (v) => `(() => {
           return k;
         })()`;
 
+// True once the Plugin API is usable. `figma` alone is not enough: while a file
+// loads the global exists but `figma.root` does not yet.
+export const FIGMA_READY_EXPR = 'typeof figma === "object" && figma !== null && !!figma.root';
+
 /**
  * Visible fallback colors for shadcn semantic token names (Zinc light theme).
  * When a `var:` reference can't be resolved (e.g. the user never loaded any
@@ -252,50 +256,33 @@ export class FigmaClient {
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(page.webSocketDebuggerUrl);
-      const executionContexts = [];
+      // Live set of execution contexts. Figma replaces them while a file is
+      // still loading, so the one found at connect time can disappear.
+      this.contexts = new Map();
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('Could not find Figma execution context. Make sure a design file is open.'));
+      }, timeoutMs);
 
       this.ws.on('open', async () => {
         try {
           // Enable Runtime to discover execution contexts (needed for Figma v39+)
           await this.send('Runtime.enable');
-
-          // Give time for context events to arrive
-          await new Promise(r => setTimeout(r, 500));
-
-          // First try default context (works on older Figma versions)
-          const defaultCheck = await this.send('Runtime.evaluate', {
-            expression: 'typeof figma !== "undefined"',
-            returnByValue: true
-          });
-
-          if (defaultCheck.result?.result?.value === true) {
-            // figma is in default context (older Figma)
-            this.executionContextId = null;
-            resolve(this);
-            return;
-          }
-
-          // Figma v39+: search all execution contexts for figma
-          for (const ctx of executionContexts) {
-            try {
-              const check = await this.send('Runtime.evaluate', {
-                expression: 'typeof figma !== "undefined"',
-                contextId: ctx.id,
-                returnByValue: true
-              });
-
-              if (check.result?.result?.value === true) {
-                this.executionContextId = ctx.id;
-                resolve(this);
-                return;
-              }
-            } catch {
-              // Context may have been destroyed, skip
-            }
-          }
-
-          reject(new Error('Could not find Figma execution context. Make sure a design file is open.'));
+          // Right after Figma starts the file is still loading: wait until
+          // `figma.root` exists instead of failing or binding to a context
+          // that is about to be replaced.
+          const found = await this.waitForFigma(timeoutMs);
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (found) resolve(this);
+          else reject(new Error('Could not find Figma execution context. Make sure a design file is open.'));
         } catch (err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           reject(err);
         }
       });
@@ -303,9 +290,12 @@ export class FigmaClient {
       this.ws.on('message', (data) => {
         const msg = JSON.parse(data);
 
-        // Collect execution contexts as they're created
         if (msg.method === 'Runtime.executionContextCreated') {
-          executionContexts.push(msg.params.context);
+          this.contexts.set(msg.params.context.id, msg.params.context);
+        } else if (msg.method === 'Runtime.executionContextDestroyed') {
+          this.contexts.delete(msg.params.executionContextId);
+        } else if (msg.method === 'Runtime.executionContextsCleared') {
+          this.contexts.clear();
         }
 
         if (msg.id && this.callbacks.has(msg.id)) {
@@ -314,10 +304,46 @@ export class FigmaClient {
         }
       });
 
-      this.ws.on('error', reject);
-
-      setTimeout(() => reject(new Error('Connection timeout')), timeoutMs);
+      this.ws.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
     });
+  }
+
+  /**
+   * Find the execution context where the Plugin API is ready. Sets
+   * executionContextId (null = default context on older Figma).
+   * @returns {Promise<boolean>}
+   */
+  async findFigmaContext() {
+    const ready = { expression: FIGMA_READY_EXPR, returnByValue: true };
+    const inDefault = await this.send('Runtime.evaluate', ready);
+    if (inDefault.result?.result?.value === true) {
+      this.executionContextId = null;
+      return true;
+    }
+    for (const id of [...(this.contexts?.keys() || [])].reverse()) {
+      const check = await this.send('Runtime.evaluate', { ...ready, contextId: id });
+      if (check.result?.result?.value === true) {
+        this.executionContextId = id;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Poll until the Plugin API is ready or the deadline passes. */
+  async waitForFigma(timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    while (this.ws && this.ws.readyState === 1) {
+      if (await this.findFigmaContext()) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise(r => setTimeout(r, 250));
+    }
+    return false;
   }
 
   send(method, params = {}) {
@@ -347,7 +373,21 @@ export class FigmaClient {
       params.contextId = this.executionContextId;
     }
 
-    const result = await this.send('Runtime.evaluate', params);
+    let result = await this.send('Runtime.evaluate', params);
+
+    // The bound context went away (file reloaded, tab restored after a Figma
+    // start). Re-running is safe: without the Plugin API the code could not
+    // have touched the document.
+    if (result.result?.exceptionDetails || result.error) {
+      const ready = await this.send('Runtime.evaluate', { expression: FIGMA_READY_EXPR, returnByValue: true, ...(this.executionContextId ? { contextId: this.executionContextId } : {}) });
+      if (ready.result?.result?.value !== true && await this.waitForFigma()) {
+        if (this.executionContextId) params.contextId = this.executionContextId;
+        else delete params.contextId;
+        result = await this.send('Runtime.evaluate', params);
+      }
+    }
+
+    if (result.error) throw new Error(result.error.message || 'Evaluation error');
 
     if (result.result?.exceptionDetails) {
       const error = result.result.exceptionDetails;
