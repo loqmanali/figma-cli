@@ -17,6 +17,11 @@
   No API key. No copy-paste. No plugin to babysit. No code to write.
 </p>
 
+<p align="center">
+  Built by <b>Sil Bormüller</b>: Founder of <a href="https://www.intodesignsystems.com/">Into Design Systems</a><br>
+  Join my AI conference: <a href="https://www.intodesignsystems.com/">AI Design Systems Conference 2027</a> on March 10 and 11 2027 online
+</p>
+
 ---
 
 ## What is this?
@@ -417,6 +422,8 @@ Found a vulnerability? Report it privately via [GitHub private vulnerability rep
 - Into Design Systems: [intodesignsystems.com](https://www.intodesignsystems.com/)
 - Newsletter with tutorials: [intodesignsystems.substack.com](https://intodesignsystems.substack.com/)
 - GitHub: [@silships](https://github.com/silships)
+
+Join my AI conference: [AI Design Systems Conference 2027](https://www.intodesignsystems.com/) on March 10 and 11 2027 online.
 
 ---
 
